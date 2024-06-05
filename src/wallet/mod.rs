@@ -9,6 +9,9 @@ mod rpc;
 mod storage;
 mod swapcoin;
 
+#[allow(dead_code)]
+mod bdk;
+
 pub use api::{DisplayAddressType, UTXOSpendInfo, Wallet};
 pub use direct_send::{CoinToSpend, Destination, SendAmount};
 pub use error::WalletError;
