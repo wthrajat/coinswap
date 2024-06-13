@@ -82,8 +82,11 @@ pub struct Wallet {
 /// Each kind represents an unhardened index value. Starting with External = 0.
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Clone, Copy)]
 pub enum KeychainKind {
-    External = 0isize,
+    External,
     Internal,
+    Fidelity,
+    SwapCoin { id: u32 },
+    Contract,
 }
 
 impl KeychainKind {
@@ -91,6 +94,9 @@ impl KeychainKind {
         match self {
             Self::External => 0,
             Self::Internal => 1,
+            Self::Fidelity => 2,
+            Self::SwapCoin { id } => 3 + id,
+            Self::Contract => 4,
         }
     }
 }
