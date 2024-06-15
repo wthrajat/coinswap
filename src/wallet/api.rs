@@ -7,6 +7,7 @@ use std::{convert::TryFrom, fs, path::PathBuf, str::FromStr};
 
 use std::collections::{HashMap, HashSet};
 
+use bdk::descriptor::calc_checksum;
 use bitcoin::{
     bip32::{ChildNumber, DerivationPath, ExtendedPubKey},
     hashes::{hash160::Hash as Hash160, hex::FromHex},
@@ -20,10 +21,7 @@ use bitcoind::bitcoincore_rpc::{core_rpc_json::ListUnspentResultEntry, Client, R
 
 use crate::{
     protocol::contract,
-    utill::{
-        compute_checksum, generate_keypair, get_hd_path_from_descriptor,
-        redeemscript_to_scriptpubkey,
-    },
+    utill::{generate_keypair, get_hd_path_from_descriptor, redeemscript_to_scriptpubkey},
 };
 
 use super::{
@@ -566,7 +564,7 @@ impl Wallet {
                 let decriptor = format!(
                     "{}#{}",
                     descriptor_without_checksum,
-                    compute_checksum(&descriptor_without_checksum).unwrap()
+                    calc_checksum(&descriptor_without_checksum).unwrap()
                 );
                 (*keychain, decriptor)
             })
@@ -1381,7 +1379,7 @@ impl Wallet {
                     format!(
                         "{}#{}",
                         descriptor_without_checksum,
-                        compute_checksum(&descriptor_without_checksum).unwrap()
+                        calc_checksum(&descriptor_without_checksum).unwrap()
                     )
                 })
                 .collect::<Vec<String>>(),
@@ -1400,7 +1398,7 @@ impl Wallet {
                     format!(
                         "{}#{}",
                         descriptor_without_checksum,
-                        compute_checksum(&descriptor_without_checksum).unwrap()
+                        calc_checksum(&descriptor_without_checksum).unwrap()
                     )
                 })
                 .collect::<Vec<String>>(),
@@ -1416,7 +1414,7 @@ impl Wallet {
                     format!(
                         "{}#{}",
                         descriptor_without_checksum,
-                        compute_checksum(&descriptor_without_checksum).unwrap()
+                        calc_checksum(&descriptor_without_checksum).unwrap()
                     )
                 })
                 .collect::<Vec<_>>(),
@@ -1431,7 +1429,7 @@ impl Wallet {
                     format!(
                         "{}#{}",
                         descriptor_without_checksum,
-                        compute_checksum(&descriptor_without_checksum).unwrap()
+                        calc_checksum(&descriptor_without_checksum).unwrap()
                     )
                 })
                 .collect::<Vec<_>>(),
@@ -1442,7 +1440,7 @@ impl Wallet {
             format!(
                 "{}#{}",
                 descriptor_without_checksum,
-                compute_checksum(&descriptor_without_checksum).unwrap()
+                calc_checksum(&descriptor_without_checksum).unwrap()
             )
         }));
 
