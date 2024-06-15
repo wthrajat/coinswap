@@ -85,7 +85,7 @@ pub enum KeychainKind {
     External,
     Internal,
     Fidelity,
-    SwapCoin { id: u32 },
+    SwapCoin,
     Contract,
 }
 
@@ -95,7 +95,7 @@ impl KeychainKind {
             Self::External => 0,
             Self::Internal => 1,
             Self::Fidelity => 2,
-            Self::SwapCoin { id } => 3 + id,
+            Self::SwapCoin => 3,
             Self::Contract => 4,
         }
     }
