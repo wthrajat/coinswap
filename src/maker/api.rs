@@ -268,12 +268,16 @@ impl Maker {
 
             let funding_output_index = find_funding_output_index(funding_info)?;
 
-            //check the funding_tx is confirmed confirmed to required depth
+            //check the funding_tx is confirmed to required depth
             if let Some(txout) = self
                 .wallet
                 .read()?
                 .rpc
-                .get_tx_out(&funding_info.funding_tx.txid(), funding_output_index, None)
+                .get_tx_out(
+                    &funding_info.funding_tx.compute_txid(),
+                    funding_output_index,
+                    None,
+                )
                 .map_err(WalletError::Rpc)?
             {
                 if txout.confirmations < (self.config.required_confirms as u32) {
@@ -307,7 +311,7 @@ impl Maker {
 
             if !self.wallet.read()?.does_prevout_match_cached_contract(
                 &(OutPoint {
-                    txid: funding_info.funding_tx.txid(),
+                    txid: funding_info.funding_tx.compute_txid(),
                     vout: funding_output_index,
                 }),
                 &contract_spk,
@@ -407,12 +411,12 @@ pub fn check_for_broadcasted_contracts(maker: Arc<Maker>) -> Result<(), MakerErr
                 let txids_to_watch = connection_state
                     .incoming_swapcoins
                     .iter()
-                    .map(|is| is.contract_tx.txid())
+                    .map(|is| is.contract_tx.compute_txid())
                     .chain(
                         connection_state
                             .outgoing_swapcoins
                             .iter()
-                            .map(|oc| oc.contract_tx.txid()),
+                            .map(|oc| oc.contract_tx.compute_txid()),
                     )
                     .collect::<Vec<_>>();
 
@@ -597,7 +601,7 @@ pub fn recover_from_swap(
             .wallet
             .read()?
             .rpc
-            .get_raw_transaction_info(&tx.txid(), None)
+            .get_raw_transaction_info(&tx.compute_txid(), None)
             .is_ok()
         {
             log::info!(
@@ -614,7 +618,7 @@ pub fn recover_from_swap(
             log::info!(
                 "[{}] Broadcasted Incoming Contract : {}",
                 maker.config.port,
-                tx.txid()
+                tx.compute_txid()
             );
         }
 
@@ -626,7 +630,7 @@ pub fn recover_from_swap(
         log::info!(
             "[{}] Removed Incoming Swapcoin From Wallet, Contract Txid : {}",
             maker.config.port,
-            removed_incoming.contract_tx.txid()
+            removed_incoming.contract_tx.compute_txid()
         );
     }
 
@@ -638,7 +642,7 @@ pub fn recover_from_swap(
             .wallet
             .read()?
             .rpc
-            .get_raw_transaction_info(&tx.txid(), None)
+            .get_raw_transaction_info(&tx.compute_txid(), None)
             .is_ok()
         {
             log::info!(
@@ -655,7 +659,7 @@ pub fn recover_from_swap(
             log::info!(
                 "[{}] Broadcasted Outgoing Contract : {}",
                 maker.config.port,
-                tx.txid()
+                tx.compute_txid()
             );
         }
     }
@@ -674,12 +678,12 @@ pub fn recover_from_swap(
                 .wallet
                 .read()?
                 .rpc
-                .get_raw_transaction_info(&contract.txid(), None)
+                .get_raw_transaction_info(&contract.compute_txid(), None)
             {
                 log::info!(
                     "[{}] Contract Tx : {}, reached confirmation : {:?}, Required Confirmation : {}",
                     maker.config.port,
-                    contract.txid(),
+                    contract.compute_txid(),
                     result.confirmations,
                     timelock
                 );
@@ -690,12 +694,12 @@ pub fn recover_from_swap(
                             "[{}] Timelock maturity of {} blocks for Contract Tx is reached : {}",
                             maker.config.port,
                             timelock,
-                            contract.txid()
+                            contract.compute_txid()
                         );
                         log::info!(
                             "[{}] Broadcasting timelocked tx: {}",
                             maker.config.port,
-                            timelocked_tx.txid()
+                            timelocked_tx.compute_txid()
                         );
                         maker
                             .wallet
@@ -720,7 +724,7 @@ pub fn recover_from_swap(
                 log::info!(
                     "[{}] Removed Outgoing Swapcoin from Wallet, Contract Txid: {}",
                     maker.config.port,
-                    outgoing_removed.contract_tx.txid()
+                    outgoing_removed.contract_tx.compute_txid()
                 );
             }
             log::info!("initializing Wallet Sync.");
