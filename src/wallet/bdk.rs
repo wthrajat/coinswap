@@ -20,7 +20,6 @@ use std::{
     num::ParseIntError,
 };
 
-use bdk_wallet::descriptor::calc_checksum;
 use bdk_chain::bitcoin::{
     absolute::LockTime,
     bip32::{ChildNumber, DerivationPath, Xpriv, Xpub},
@@ -43,6 +42,7 @@ use bdk_chain::bitcoin::{
     Address, Amount, Network, OutPoint, PublicKey, Script, ScriptBuf, Sequence, Transaction, TxIn,
     TxOut, Txid, Witness,
 };
+use bdk_wallet::descriptor::calc_checksum;
 
 use crate::protocol::error::ContractError;
 use bitcoind::bitcoincore_rpc::{
@@ -61,10 +61,7 @@ use crate::{
         },
         messages::Preimage,
     },
-    utill::{
-        generate_keypair, get_hd_path_from_descriptor,
-        redeemscript_to_scriptpubkey,
-    },
+    utill::{generate_keypair, get_hd_path_from_descriptor, redeemscript_to_scriptpubkey},
 };
 
 use serde::{Deserialize, Serialize};
