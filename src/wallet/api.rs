@@ -7,7 +7,7 @@ use std::{convert::TryFrom, fs, path::PathBuf, str::FromStr};
 
 use std::collections::{HashMap, HashSet};
 
-use bdk::descriptor::calc_checksum;
+use bdk_wallet::descriptor::calc_checksum;
 use bitcoin::{
     bip32::{ChildNumber, DerivationPath, Xpub},
     hashes::{hash160::Hash as Hash160, hex::FromHex},

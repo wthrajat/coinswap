@@ -20,8 +20,8 @@ use std::{
     num::ParseIntError,
 };
 
-use bdk::descriptor::calc_checksum;
-use bitcoin::{
+use bdk_wallet::descriptor::calc_checksum;
+use bdk_chain::bitcoin::{
     absolute::LockTime,
     bip32::{ChildNumber, DerivationPath, Xpriv, Xpub},
     ecdsa::Signature,
@@ -62,7 +62,7 @@ use crate::{
         messages::Preimage,
     },
     utill::{
-        compute_checksum, generate_keypair, get_hd_path_from_descriptor,
+        generate_keypair, get_hd_path_from_descriptor,
         redeemscript_to_scriptpubkey,
     },
 };
