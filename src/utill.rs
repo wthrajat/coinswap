@@ -8,7 +8,7 @@ use bitcoin::{
         rand::{rngs::OsRng, RngCore},
         Secp256k1, SecretKey,
     },
-    Network, PublicKey, ScriptBuf, WitnessProgram, WitnessVersion,
+    PublicKey, ScriptBuf, WitnessProgram, WitnessVersion,
 };
 use log4rs::{
     append::{console::ConsoleAppender, file::FileAppender},

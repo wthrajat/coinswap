@@ -22,24 +22,31 @@ use std::{
 
 use bitcoin::{
     absolute::LockTime,
-    bip32::{ChildNumber, DerivationPath, ExtendedPrivKey, ExtendedPubKey},
+    bip32::{ChildNumber, DerivationPath, Xpriv, Xpub},
     ecdsa::Signature,
-    hashes::{hash160::Hash as Hash160, hex::FromHex, sha256d, sha256d::Hash as doublesha, Hash},
+    hashes::{
+        hash160::Hash as Hash160,
+        hex::FromHex,
+        sha256d::{self, Hash as doublesha},
+        Hash,
+    },
     opcodes,
     script::{Builder, Instruction},
-    secp256k1,
     secp256k1::{
+        self,
         rand::{rngs::OsRng, RngCore},
-        KeyPair, Message, Secp256k1, SecretKey,
+        Keypair, Message, Secp256k1, SecretKey,
     },
     sighash::{EcdsaSighashType, SighashCache},
+    transaction::Version,
     Address, Amount, Network, OutPoint, PublicKey, Script, ScriptBuf, Sequence, Transaction, TxIn,
     TxOut, Txid, Witness,
 };
 
+use crate::protocol::error::ContractError;
 use bitcoind::bitcoincore_rpc::{
-    core_rpc_json::ListUnspentResultEntry, json::CreateRawTransactionInput, Auth, Client, RawTx,
-    RpcApi,
+    bitcoincore_rpc_json::ListUnspentResultEntry, json::CreateRawTransactionInput, Auth, Client,
+    RawTx, RpcApi,
 };
 
 use crate::{
@@ -51,12 +58,11 @@ use crate::{
             read_hashvalue_from_contract, read_pubkeys_from_multisig_redeemscript,
             read_timelock_pubkey_from_contract, sign_contract_tx, verify_contract_tx_sig,
         },
-        error::ContractError,
         messages::Preimage,
     },
     utill::{
         compute_checksum, generate_keypair, get_hd_path_from_descriptor,
-        redeemscript_to_scriptpubkey, str_to_bitcoin_network,
+        redeemscript_to_scriptpubkey,
     },
 };
 
@@ -175,140 +181,6 @@ type SwapCoinsInfo<'a> = (
 );
 
 impl Wallet {
-    /// Displays addresses based on the specified `DisplayAddressType`.
-    pub fn display_addresses(&self, types: DisplayAddressType) -> Result<(), WalletError> {
-        if types == DisplayAddressType::All || types == DisplayAddressType::MasterKey {
-            println!(
-                "master key = {}, external_index = {}",
-                self.store.master_key, self.store.external_index
-            );
-        }
-        let secp = Secp256k1::new();
-
-        if types == DisplayAddressType::All || types == DisplayAddressType::Seed {
-            let top_branch = ExtendedPubKey::from_priv(
-                &secp,
-                &self
-                    .store
-                    .master_key
-                    .derive_priv(
-                        &secp,
-                        &DerivationPath::from_str(HARDENDED_DERIVATION).unwrap(),
-                    )
-                    .unwrap(),
-            );
-            for c in 0..2 {
-                println!(
-                    "{} branch from seed",
-                    if c == 0 { "Receive" } else { "Change" }
-                );
-                let recv_or_change_branch = top_branch
-                    .ckd_pub(&secp, ChildNumber::Normal { index: c })
-                    .unwrap();
-                for i in 0..self.get_addrss_import_count() {
-                    let pubkey = PublicKey {
-                        compressed: true,
-                        inner: recv_or_change_branch
-                            .ckd_pub(&secp, ChildNumber::Normal { index: i })
-                            .unwrap()
-                            .public_key,
-                    };
-                    let addr = Address::p2wpkh(&pubkey, self.store.network).unwrap();
-                    println!("{} from seed {}/{}/{}", addr, HARDENDED_DERIVATION, c, i);
-                }
-            }
-        }
-
-        if types == DisplayAddressType::All
-            || types == DisplayAddressType::IncomingSwap
-            || types == DisplayAddressType::Swap
-        {
-            println!(
-                "incoming swapcoin count = {}",
-                self.store.incoming_swapcoins.len()
-            );
-            for (multisig_redeemscript, swapcoin) in &self.store.incoming_swapcoins {
-                println!(
-                    "{} incoming_swapcoin other_privkey={} contract_txid={}",
-                    Address::p2wsh(multisig_redeemscript, self.store.network),
-                    if swapcoin.other_privkey.is_some() {
-                        "known  "
-                    } else {
-                        "unknown"
-                    },
-                    swapcoin.contract_tx.txid()
-                );
-            }
-        }
-
-        if types == DisplayAddressType::All
-            || types == DisplayAddressType::OutgoingSwap
-            || types == DisplayAddressType::Swap
-        {
-            println!(
-                "outgoing swapcoin count = {}",
-                self.store.outgoing_swapcoins.len()
-            );
-            for (multisig_redeemscript, swapcoin) in &self.store.outgoing_swapcoins {
-                println!(
-                    "{} outgoing_swapcoin contract_txid={}",
-                    Address::p2wsh(multisig_redeemscript, self.store.network),
-                    swapcoin.contract_tx.txid()
-                );
-            }
-        }
-
-        if types == DisplayAddressType::All
-            || types == DisplayAddressType::IncomingContract
-            || types == DisplayAddressType::Contract
-        {
-            println!(
-                "incoming swapcoin count = {}",
-                self.store.incoming_swapcoins.len()
-            );
-            for swapcoin in self.store.incoming_swapcoins.values() {
-                println!(
-                    "{} incoming_swapcoin_contract hashvalue={} locktime={} contract_txid={}",
-                    Address::p2wsh(&swapcoin.contract_redeemscript, self.store.network),
-                    swapcoin.get_hashvalue(),
-                    swapcoin.get_timelock(),
-                    swapcoin.contract_tx.txid()
-                );
-            }
-        }
-
-        if types == DisplayAddressType::All
-            || types == DisplayAddressType::OutgoingContract
-            || types == DisplayAddressType::Contract
-        {
-            println!(
-                "outgoing swapcoin count = {}",
-                self.store.outgoing_swapcoins.len()
-            );
-            for swapcoin in self.store.outgoing_swapcoins.values() {
-                println!(
-                    "{} outgoing_swapcoin_contract hashvalue={} locktime={} contract_txid={}",
-                    Address::p2wsh(&swapcoin.contract_redeemscript, self.store.network),
-                    swapcoin.get_hashvalue(),
-                    swapcoin.get_timelock(),
-                    swapcoin.contract_tx.txid()
-                );
-            }
-        }
-
-        if types == DisplayAddressType::All || types == DisplayAddressType::FidelityBond {
-            for (bond, _, _) in self.store.fidelity_bond.values() {
-                let locktime = bond.lock_time;
-                println!(
-                    "[{}] locktime={}",
-                    Address::from_script(&bond.script_pub_key(), self.store.network).unwrap(),
-                    locktime
-                );
-            }
-        }
-        Ok(())
-    }
-
     pub fn init(
         path: &PathBuf,
         rpc_config: &RPCConfig,
@@ -577,7 +449,7 @@ impl Wallet {
     /// Wallet descriptors are derivable. Currently only supports two KeychainKind. Internal and External.
     fn get_wallet_descriptors(&self) -> Result<HashMap<KeychainKind, String>, WalletError> {
         let secp = Secp256k1::new();
-        let wallet_xpub = ExtendedPubKey::from_priv(
+        let wallet_xpub = Xpub::from_priv(
             &secp,
             &self
                 .store
@@ -651,7 +523,7 @@ impl Wallet {
     /// Core wallet label is the master XPub fingerint.
     pub fn get_core_wallet_label(&self) -> String {
         let secp = Secp256k1::new();
-        let m_xpub = ExtendedPubKey::from_priv(&secp, &self.store.master_key);
+        let m_xpub = Xpub::from_priv(&secp, &self.store.master_key);
         m_xpub.fingerprint().to_string()
     }
 
@@ -1121,7 +993,7 @@ impl Wallet {
         let privkey = self
             .store
             .master_key
-            .ckd_priv(&secp, ChildNumber::from_hardened_idx(0).unwrap())
+            .derive_priv(&secp, &[ChildNumber::from_hardened_idx(0).unwrap()])
             .unwrap()
             .private_key;
 
@@ -1168,14 +1040,19 @@ impl Wallet {
                         compressed: true,
                         inner: privkey.public_key(&secp),
                     };
-                    let scriptcode = ScriptBuf::new_p2pkh(&pubkey.pubkey_hash());
+                    let scriptcode = ScriptBuf::new_p2wpkh(&pubkey.wpubkey_hash().unwrap());
                     let sighash = SighashCache::new(&tx_clone)
-                        .segwit_signature_hash(ix, &scriptcode, input_value, EcdsaSighashType::All)
+                        .p2wpkh_signature_hash(
+                            ix,
+                            &scriptcode,
+                            Amount::from_sat(input_value),
+                            EcdsaSighashType::All,
+                        )
                         .unwrap();
                     //use low-R value signatures for privacy
                     //https://en.bitcoin.it/wiki/Privacy#Wallet_fingerprinting
                     let signature = secp.sign_ecdsa_low_r(
-                        &secp256k1::Message::from_slice(&sighash[..]).unwrap(),
+                        &secp256k1::Message::from_digest_slice(&sighash[..]).unwrap(),
                         &privkey,
                     );
                     let mut sig_serialised = signature.serialize_der().to_vec();
@@ -1203,15 +1080,15 @@ impl Wallet {
                     let privkey = self.get_fidelity_keypair(index)?.secret_key();
                     let redeemscript = self.get_fidelity_reedemscript(index)?;
                     let sighash = SighashCache::new(&tx_clone)
-                        .segwit_signature_hash(
+                        .p2wsh_signature_hash(
                             ix,
                             &redeemscript,
-                            input_value,
+                            Amount::from_sat(input_value),
                             EcdsaSighashType::All,
                         )
                         .unwrap();
                     let sig = secp.sign_ecdsa(
-                        &secp256k1::Message::from_slice(&sighash[..]).unwrap(),
+                        &secp256k1::Message::from_digest_slice(&sighash[..]).unwrap(),
                         &privkey,
                     );
 
@@ -1356,10 +1233,10 @@ impl Wallet {
             let funding_amount = my_funding_tx.output[utxo_index as usize].value;
             let my_senders_contract_tx = contract::create_senders_contract_tx(
                 OutPoint {
-                    txid: my_funding_tx.txid(),
+                    txid: my_funding_tx.compute_txid(),
                     vout: utxo_index,
                 },
-                funding_amount,
+                funding_amount.to_sat(),
                 &contract_redeemscript,
             );
 
@@ -1370,7 +1247,7 @@ impl Wallet {
                 my_senders_contract_tx,
                 contract_redeemscript,
                 timelock_privkey,
-                funding_amount,
+                funding_amount.to_sat(),
             ));
         }
 
@@ -1618,13 +1495,13 @@ impl Wallet {
             });
             let change_amount = total_input_amount.checked_sub(remaining + fee);
             let mut tx_outs = vec![TxOut {
-                value: output_value,
+                value: Amount::from_sat(output_value),
                 script_pubkey: address.script_pubkey(),
             }];
 
             if let Some(change) = change_amount {
                 tx_outs.push(TxOut {
-                    value: change.to_sat(),
+                    value: change,
                     script_pubkey: change_address.script_pubkey(),
                 });
             }
@@ -1641,7 +1518,7 @@ impl Wallet {
                 input: tx_inputs,
                 output: tx_outs,
                 lock_time: LockTime::ZERO,
-                version: 2,
+                version: Version::TWO,
             };
             let mut input_info = selected_utxo
                 .iter()
@@ -1703,7 +1580,7 @@ impl Wallet {
             let mut tx_outs = Vec::new();
             for (address, value) in outputs {
                 tx_outs.push(TxOut {
-                    value,
+                    value: Amount::from_sat(value),
                     script_pubkey: address.script_pubkey(),
                 });
             }
@@ -1711,11 +1588,11 @@ impl Wallet {
                 input: tx_inputs,
                 output: tx_outs,
                 lock_time: LockTime::ZERO,
-                version: 2,
+                version: Version::TWO,
             };
             self.sign_transaction(&mut funding_tx, &mut input_info)?;
 
-            leftover_coinswap_amount -= funding_tx.output[0].value;
+            leftover_coinswap_amount -= funding_tx.output[0].value.to_sat();
 
             total_miner_fee += fee_rate;
 
@@ -1751,7 +1628,7 @@ impl Wallet {
         let mut tx_outs = Vec::new();
         for (address, value) in outputs {
             tx_outs.push(TxOut {
-                value,
+                value: Amount::from_sat(value),
                 script_pubkey: address.script_pubkey(),
             });
         }
@@ -1759,12 +1636,12 @@ impl Wallet {
             input: tx_inputs,
             output: tx_outs,
             lock_time: LockTime::ZERO,
-            version: 2,
+            version: Version::TWO,
         };
         let mut info = input_info.iter().cloned();
         self.sign_transaction(&mut funding_tx, &mut info)?;
 
-        leftover_coinswap_amount -= funding_tx.output[0].value;
+        leftover_coinswap_amount -= funding_tx.output[0].value.to_sat();
 
         total_miner_fee += fee_rate;
 
@@ -1787,19 +1664,19 @@ impl Wallet {
         for (address, value) in outputs {
             change_amount -= value;
             tx_outs.push(TxOut {
-                value,
+                value: Amount::from_sat(value),
                 script_pubkey: address.script_pubkey(),
             });
         }
         tx_outs.push(TxOut {
-            value: change_amount,
+            value: Amount::from_sat(change_amount),
             script_pubkey: change_address.script_pubkey(),
         });
         let mut funding_tx = Transaction {
             input: tx_inputs,
             output: tx_outs,
             lock_time: LockTime::ZERO,
-            version: 2,
+            version: Version::TWO,
         };
         let mut info = iter::once(self.get_utxo((first_txid, first_vout))?.unwrap());
         self.sign_transaction(&mut funding_tx, &mut info)?;
@@ -1847,13 +1724,13 @@ impl Wallet {
         let change_amount = total_input_amount.checked_sub(remaining + fee);
 
         let mut tx_outs = vec![TxOut {
-            value: coinswap_amount,
+            value: Amount::from_sat(coinswap_amount),
             script_pubkey: destinations[0].script_pubkey(),
         }];
 
         if let Some(change) = change_amount {
             tx_outs.push(TxOut {
-                value: change.to_sat(),
+                value: change,
                 script_pubkey: change_address.script_pubkey(),
             });
         }
@@ -1872,7 +1749,7 @@ impl Wallet {
             input: tx_inputs,
             output: tx_outs,
             lock_time: LockTime::ZERO,
-            version: 2,
+            version: Version::TWO,
         };
 
         let mut input_info = selected_utxo
@@ -2152,18 +2029,17 @@ impl Wallet {
             .map(|(i, _)| *i))
     }
     /// Get the [KeyPair] for the fidelity bond at given index.
-    pub fn get_fidelity_keypair(&self, index: u32) -> Result<KeyPair, WalletError> {
+    pub fn get_fidelity_keypair(&self, index: u32) -> Result<Keypair, WalletError> {
         let secp = Secp256k1::new();
 
         let derivation_path = DerivationPath::from_str(FIDELITY_DERIVATION_PATH)?;
 
-        let child_index = ChildNumber::Normal { index };
+        let child_derivation_path = derivation_path.child(ChildNumber::Normal { index });
 
         Ok(self
             .store
             .master_key
-            .derive_priv(&secp, &derivation_path)?
-            .ckd_priv(&secp, child_index)?
+            .derive_priv(&secp, &child_derivation_path)?
             .to_keypair(&secp))
     }
 
@@ -2314,14 +2190,14 @@ impl Wallet {
             .collect::<Vec<_>>();
 
         let mut tx_outs = vec![TxOut {
-            value: amount.to_sat(),
+            value: amount,
             script_pubkey: fidelity_addr.script_pubkey(),
         }];
 
         if let Some(change) = change_amount {
             let change_addrs = self.get_next_internal_addresses(1)?[0].script_pubkey();
             tx_outs.push(TxOut {
-                value: change.to_sat(),
+                value: change,
                 script_pubkey: change_addrs,
             });
         }
@@ -2332,7 +2208,7 @@ impl Wallet {
             input: tx_inputs,
             output: tx_outs,
             lock_time: anti_fee_snipping_locktime,
-            version: 2, // anti-fee-snipping
+            version: Version::TWO, // anti-fee-snipping
         };
 
         let mut input_info = selected_utxo
@@ -2415,14 +2291,14 @@ impl Wallet {
 
         let txout = TxOut {
             script_pubkey: change_addr.script_pubkey(),
-            value: bond.amount - fee,
+            value: Amount::from_sat(bond.amount - fee),
         };
 
         let mut tx = Transaction {
             input: vec![txin],
             output: vec![txout],
             lock_time: bond.lock_time,
-            version: 2,
+            version: Version::TWO,
         };
 
         let utxo_spend_info = UTXOSpendInfo::FidelityBondCoin {
@@ -2502,7 +2378,7 @@ impl Wallet {
 
         let secp = Secp256k1::new();
         let cert_sig = secp.sign_ecdsa(
-            &Message::from_slice(cert_hash.as_byte_array())?,
+            &Message::from_digest_slice(cert_hash.as_byte_array())?,
             &fidelity_privkey,
         );
 
@@ -2524,7 +2400,7 @@ impl Wallet {
         }
 
         let cert_message =
-            Message::from_slice(proof.bond.generate_cert_hash(onion_addr).as_byte_array())?;
+            Message::from_digest_slice(proof.bond.generate_cert_hash(onion_addr).as_byte_array())?;
 
         let secp = Secp256k1::new();
 
@@ -2574,7 +2450,7 @@ pub struct WalletStore {
     /// Network the wallet operates on.
     pub(crate) network: Network,
     /// The master key for the wallet.
-    pub(super) master_key: ExtendedPrivKey,
+    pub(super) master_key: Xpriv,
     /// The external index for the wallet.
     pub(super) external_index: u32,
     /// The maximum size for an offer in the wallet.
@@ -2605,7 +2481,7 @@ impl WalletStore {
     ) -> Result<Self, WalletError> {
         let mnemonic = Mnemonic::parse(seedphrase)?;
         let seed = mnemonic.to_seed(passphrase);
-        let master_key = ExtendedPrivKey::new_master(network, &seed)?;
+        let master_key = Xpriv::new_master(network, &seed)?;
 
         let store = Self {
             file_name,
@@ -2757,20 +2633,20 @@ macro_rules! impl_walletswapcoin {
                     create_multisig_redeemscript(&my_pubkey, &self.other_pubkey);
                 let index = 0;
                 let secp = Secp256k1::new();
-                let sighash = secp256k1::Message::from_slice(
+                let sighash = secp256k1::Message::from_digest_slice(
                     &SighashCache::new(&self.contract_tx)
-                        .segwit_signature_hash(
+                        .p2wsh_signature_hash(
                             index,
                             &multisig_redeemscript,
-                            self.funding_amount,
+                            Amount::from_sat(self.funding_amount),
                             EcdsaSighashType::All,
                         )
                         .map_err(ContractError::Sighash)?[..],
                 )
                 .map_err(ContractError::Secp)?;
                 let sig_mine = Signature {
-                    sig: secp.sign_ecdsa(&sighash, &self.my_privkey),
-                    hash_ty: EcdsaSighashType::All,
+                    signature: secp.sign_ecdsa(&sighash, &self.my_privkey),
+                    sighash_type: EcdsaSighashType::All,
                 };
 
                 let mut signed_contract_tx = self.contract_tx.clone();
@@ -2870,12 +2746,12 @@ impl IncomingSwapCoin {
         let secp = Secp256k1::new();
         let my_pubkey = self.get_my_pubkey();
 
-        let sighash = secp256k1::Message::from_slice(
+        let sighash = secp256k1::Message::from_digest_slice(
             &SighashCache::new(tx)
-                .segwit_signature_hash(
+                .p2wsh_signature_hash(
                     index,
                     redeemscript,
-                    self.funding_amount,
+                    Amount::from_sat(self.funding_amount),
                     EcdsaSighashType::All,
                 )
                 .map_err(ContractError::Sighash)?[..],
@@ -2883,12 +2759,12 @@ impl IncomingSwapCoin {
         .map_err(ContractError::Secp)?;
 
         let sig_mine = Signature {
-            sig: secp.sign_ecdsa(&sighash, &self.my_privkey),
-            hash_ty: EcdsaSighashType::All,
+            signature: secp.sign_ecdsa(&sighash, &self.my_privkey),
+            sighash_type: EcdsaSighashType::All,
         };
         let sig_other = Signature {
-            sig: secp.sign_ecdsa(&sighash, &self.other_privkey.unwrap()),
-            hash_ty: EcdsaSighashType::All,
+            signature: secp.sign_ecdsa(&sighash, &self.other_privkey.unwrap()),
+            sighash_type: EcdsaSighashType::All,
         };
 
         apply_two_signatures_to_2of2_multisig_spend(
@@ -2911,12 +2787,12 @@ impl IncomingSwapCoin {
         hash_preimage: &[u8],
     ) -> Result<(), WalletError> {
         let secp = Secp256k1::new();
-        let sighash = secp256k1::Message::from_slice(
+        let sighash = secp256k1::Message::from_digest_slice(
             &SighashCache::new(tx)
-                .segwit_signature_hash(
+                .p2wsh_signature_hash(
                     index,
                     &self.contract_redeemscript,
-                    input_value,
+                    Amount::from_sat(input_value),
                     EcdsaSighashType::All,
                 )
                 .map_err(ContractError::Sighash)?[..],
@@ -2959,7 +2835,7 @@ impl IncomingSwapCoin {
         let mut tx = Transaction {
             input: vec![TxIn {
                 previous_output: OutPoint {
-                    txid: self.contract_tx.txid(),
+                    txid: self.contract_tx.compute_txid(),
                     vout: 0, //contract_tx is one-input-one-output
                 },
                 sequence: Sequence(1), //hashlock spends must have 1 because of the `OP_CSV 1`
@@ -2968,10 +2844,10 @@ impl IncomingSwapCoin {
             }],
             output: vec![TxOut {
                 script_pubkey: destination_address.script_pubkey(),
-                value: self.contract_tx.output[0].value - miner_fee,
+                value: Amount::from_sat(self.contract_tx.output[0].value.to_sat() - miner_fee),
             }],
             lock_time: LockTime::ZERO,
-            version: 2,
+            version: Version::TWO,
         };
         let index = 0;
         let preimage = Vec::new();
@@ -2979,7 +2855,7 @@ impl IncomingSwapCoin {
             index,
             &tx.clone(),
             &mut tx.input[0],
-            self.contract_tx.output[0].value,
+            self.contract_tx.output[0].value.to_sat(),
             &preimage,
         )
         .unwrap();
@@ -2992,7 +2868,7 @@ impl IncomingSwapCoin {
             &self.get_multisig_redeemscript(),
             self.funding_amount,
             &self.other_pubkey,
-            &sig.sig,
+            &sig.signature,
         )?)
     }
 }
@@ -3034,12 +2910,12 @@ impl OutgoingSwapCoin {
         input_value: u64,
     ) -> Result<(), WalletError> {
         let secp = Secp256k1::new();
-        let sighash = secp256k1::Message::from_slice(
+        let sighash = secp256k1::Message::from_digest_slice(
             &SighashCache::new(tx)
-                .segwit_signature_hash(
+                .p2wsh_signature_hash(
                     index,
                     &self.contract_redeemscript,
-                    input_value,
+                    Amount::from_sat(input_value),
                     EcdsaSighashType::All,
                 )
                 .map_err(ContractError::Sighash)?[..],
@@ -3061,7 +2937,7 @@ impl OutgoingSwapCoin {
         let mut tx = Transaction {
             input: vec![TxIn {
                 previous_output: OutPoint {
-                    txid: self.contract_tx.txid(),
+                    txid: self.contract_tx.compute_txid(),
                     vout: 0, //contract_tx is one-input-one-output
                 },
                 sequence: Sequence(self.get_timelock() as u32),
@@ -3070,17 +2946,17 @@ impl OutgoingSwapCoin {
             }],
             output: vec![TxOut {
                 script_pubkey: destination_address.script_pubkey(),
-                value: self.contract_tx.output[0].value - miner_fee,
+                value: Amount::from_sat(self.contract_tx.output[0].value.to_sat() - miner_fee),
             }],
             lock_time: LockTime::ZERO,
-            version: 2,
+            version: Version::TWO,
         };
         let index = 0;
         self.sign_timelocked_transaction_input(
             index,
             &tx.clone(),
             &mut tx.input[0],
-            self.contract_tx.output[0].value,
+            self.contract_tx.output[0].value.to_sat(),
         )
         .unwrap();
         tx
@@ -3106,7 +2982,7 @@ impl OutgoingSwapCoin {
             &self.get_multisig_redeemscript(),
             self.funding_amount,
             &self.other_pubkey,
-            &sig.sig,
+            &sig.signature,
         )?)
     }
 }
@@ -3246,7 +3122,7 @@ impl SwapCoin for WatchOnlySwapCoin {
             &self.get_multisig_redeemscript(),
             self.funding_amount,
             &self.receiver_pubkey,
-            &sig.sig,
+            &sig.signature,
         )?)
     }
 
@@ -3256,7 +3132,7 @@ impl SwapCoin for WatchOnlySwapCoin {
             &self.get_multisig_redeemscript(),
             self.funding_amount,
             &self.sender_pubkey,
-            &sig.sig,
+            &sig.signature,
         )?)
     }
 }
@@ -3301,7 +3177,7 @@ impl TryFrom<&RPCConfig> for Client {
             .as_str(),
             config.auth.clone(),
         )?;
-        if config.network != str_to_bitcoin_network(rpc.get_blockchain_info()?.chain.as_str()) {
+        if config.network != rpc.get_blockchain_info()?.chain {
             return Err(WalletError::Protocol(
                 "RPC Network not mathcing with RPCConfig".to_string(),
             ));
@@ -3466,7 +3342,7 @@ pub enum Destination {
 }
 
 impl FromStr for Destination {
-    type Err = bitcoin::address::Error;
+    type Err = bitcoin::address::ParseError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         Ok(if s == "wallet" {
@@ -3593,11 +3469,13 @@ impl Wallet {
             Destination::Address(a) => {
                 //testnet and signet addresses have the same vbyte
                 //so a.network is always testnet even if the address is signet
-                let testnet_signet_type = (a.network == Network::Testnet
-                    || a.network == Network::Signet)
+                let testnet_signet_type = (a.as_unchecked().is_valid_for_network(Network::Testnet)
+                    || a.as_unchecked().is_valid_for_network(Network::Signet))
                     && (self.store.network == Network::Testnet
                         || self.store.network == Network::Signet);
-                if a.network != self.store.network && !testnet_signet_type {
+                if !a.as_unchecked().is_valid_for_network(self.store.network)
+                    && !testnet_signet_type
+                {
                     return Err(WalletError::Protocol(
                         "Wrong address type in destinations.".to_string(),
                     ));
@@ -3616,7 +3494,7 @@ impl Wallet {
             log::info!("Sending {} to {}.", value, dest_addr);
             TxOut {
                 script_pubkey: dest_addr.script_pubkey(),
-                value,
+                value: Amount::from_sat(value),
             }
         };
 
@@ -3626,11 +3504,11 @@ impl Wallet {
         if let SendAmount::Amount(amount) = send_amount {
             let internal_spk = self.get_next_internal_addresses(1)?[0].script_pubkey();
             let remaining = total_input_value - amount - fee;
-            if remaining > internal_spk.dust_value() {
+            if remaining > internal_spk.minimal_non_dust() {
                 log::info!("Adding Change {}:{}", internal_spk, remaining);
                 output.push(TxOut {
                     script_pubkey: internal_spk,
-                    value: remaining.to_sat(),
+                    value: remaining,
                 });
             }
         }
@@ -3642,7 +3520,7 @@ impl Wallet {
             input: tx_inputs,
             output,
             lock_time,
-            version: 2,
+            version: Version::TWO,
         };
         self.sign_transaction(
             &mut tx,
@@ -3666,9 +3544,8 @@ pub enum WalletError {
     BIP39(bip39::Error),
     Contract(ContractError),
     Fidelity(FidelityError),
-    Locktime(bitcoin::blockdata::locktime::absolute::Error),
+    Locktime(bitcoin::blockdata::locktime::absolute::ConversionError),
     Secp(bitcoin::secp256k1::Error),
-    Address(bitcoin::address::Error),
 }
 
 impl From<std::io::Error> for WalletError {
@@ -3713,8 +3590,8 @@ impl From<FidelityError> for WalletError {
     }
 }
 
-impl From<bitcoin::blockdata::locktime::absolute::Error> for WalletError {
-    fn from(value: bitcoin::blockdata::locktime::absolute::Error) -> Self {
+impl From<bitcoin::blockdata::locktime::absolute::ConversionError> for WalletError {
+    fn from(value: bitcoin::blockdata::locktime::absolute::ConversionError) -> Self {
         Self::Locktime(value)
     }
 }
@@ -3725,11 +3602,11 @@ impl From<bitcoin::secp256k1::Error> for WalletError {
     }
 }
 
-impl From<bitcoin::address::Error> for WalletError {
-    fn from(value: bitcoin::address::Error) -> Self {
-        Self::Address(value)
-    }
-}
+// impl From<bitcoin::address::Error> for WalletError {
+//     fn from(value: bitcoin::address::Error) -> Self {
+//         Self::Address(value)
+//     }
+// }
 
 // Other things required from outside the wallet module->
 
@@ -4015,7 +3892,7 @@ mod tests {
 
         let privkey_sender = bitcoin::PrivateKey {
             compressed: true,
-            network: bitcoin::Network::Testnet,
+            network: bitcoin::NetworkKind::Test,
             inner: secp256k1::SecretKey::from_str(
                 "0000000000000000000000000000000000000000000000000000000000000001",
             )
@@ -4024,7 +3901,7 @@ mod tests {
 
         let privkey_receiver = bitcoin::PrivateKey {
             compressed: true,
-            network: bitcoin::Network::Testnet,
+            network: bitcoin::NetworkKind::Test,
             inner: secp256k1::SecretKey::from_str(
                 "0000000000000000000000000000000000000000000000000000000000000002",
             )
@@ -4039,7 +3916,7 @@ mod tests {
                 input: vec![],
                 output: vec![],
                 lock_time: LockTime::ZERO,
-                version: 2,
+                version: Version::TWO,
             },
             contract_redeemscript: ScriptBuf::default(),
         };
@@ -4061,7 +3938,7 @@ mod tests {
         let secp = Secp256k1::new();
         let other_privkey = bitcoin::PrivateKey {
             compressed: true,
-            network: bitcoin::Network::Testnet,
+            network: bitcoin::NetworkKind::Test,
             inner: secp256k1::SecretKey::from_str(
                 "0000000000000000000000000000000000000000000000000000000000000002",
             )
@@ -4084,7 +3961,7 @@ mod tests {
                 input: vec![],
                 output: vec![],
                 lock_time: LockTime::ZERO,
-                version: 2,
+                version: Version::TWO,
             },
             contract_redeemscript: ScriptBuf::default(),
             hashlock_privkey: secp256k1::SecretKey::from_str(
@@ -4119,7 +3996,7 @@ mod tests {
         let secp = Secp256k1::new();
         let other_privkey = bitcoin::PrivateKey {
             compressed: true,
-            network: bitcoin::Network::Testnet,
+            network: bitcoin::NetworkKind::Test,
             inner: secp256k1::SecretKey::from_str(
                 "0000000000000000000000000000000000000000000000000000000000000001",
             )
@@ -4135,7 +4012,7 @@ mod tests {
                 input: vec![],
                 output: vec![],
                 lock_time: LockTime::ZERO,
-                version: 2,
+                version: Version::TWO,
             },
             contract_redeemscript: ScriptBuf::default(),
             timelock_privkey: secp256k1::SecretKey::from_str(
@@ -4171,7 +4048,7 @@ mod tests {
         let secp = Secp256k1::new();
         let other_privkey = bitcoin::PrivateKey {
             compressed: true,
-            network: bitcoin::Network::Testnet,
+            network: bitcoin::NetworkKind::Test,
             inner: secp256k1::SecretKey::from_str(
                 "0000000000000000000000000000000000000000000000000000000000000002",
             )
@@ -4183,7 +4060,7 @@ mod tests {
             input: vec![input.clone()],
             output: vec![],
             lock_time: LockTime::ZERO,
-            version: 2,
+            version: Version::TWO,
         };
 
         let contract_redeemscript = ScriptBuf::default(); // Example redeem script
@@ -4204,7 +4081,7 @@ mod tests {
                 input: vec![],
                 output: vec![],
                 lock_time: LockTime::ZERO,
-                version: 2,
+                version: Version::TWO,
             },
             contract_redeemscript: ScriptBuf::default(),
             hashlock_privkey: secp256k1::SecretKey::from_str(
@@ -4220,8 +4097,8 @@ mod tests {
             .sign_transaction_input(index, &tx, &mut input, &contract_redeemscript,)
             .is_err());
         let sign = bitcoin::ecdsa::Signature {
-            sig: secp256k1::ecdsa::Signature::from_compact(&[0; 64]).unwrap(),
-            hash_ty: bitcoin::sighash::EcdsaSighashType::All,
+            signature: secp256k1::ecdsa::Signature::from_compact(&[0; 64]).unwrap(),
+            sighash_type: bitcoin::sighash::EcdsaSighashType::All,
         };
         // Intentionally failing to verify with incomplete swapcoin
         assert!(incoming_swapcoin
@@ -4235,14 +4112,14 @@ mod tests {
         let secp = Secp256k1::new();
         let other_privkey = PrivateKey {
             compressed: true,
-            network: bitcoin::Network::Bitcoin,
+            network: bitcoin::NetworkKind::Test,
             inner: secp256k1::SecretKey::from_str(
                 "0000000000000000000000000000000000000000000000000000000000000001",
             )
             .unwrap(),
         };
         let input = TxIn::default();
-        let output = TxOut::default();
+        let output = TxOut::NULL;
         let incoming_swapcoin = IncomingSwapCoin {
             my_privkey: secp256k1::SecretKey::from_str(
                 "0000000000000000000000000000000000000000000000000000000000000003",
@@ -4259,7 +4136,7 @@ mod tests {
                 input: vec![input.clone()],
                 output: vec![output.clone()],
                 lock_time: LockTime::ZERO,
-                version: 2,
+                version: Version::TWO,
             },
             contract_redeemscript: ScriptBuf::default(),
             hashlock_privkey: secp256k1::SecretKey::from_str(
@@ -4279,7 +4156,7 @@ mod tests {
         let mut tx = Transaction {
             input: vec![TxIn {
                 previous_output: OutPoint {
-                    txid: incoming_swapcoin.contract_tx.txid(),
+                    txid: incoming_swapcoin.contract_tx.compute_txid(),
                     vout: 0, //contract_tx is one-input-one-output
                 },
                 sequence: Sequence(1), //hashlock spends must have 1 because of the `OP_CSV 1`
@@ -4288,10 +4165,12 @@ mod tests {
             }],
             output: vec![TxOut {
                 script_pubkey: destination_address.script_pubkey(),
-                value: incoming_swapcoin.contract_tx.output[0].value - miner_fee,
+                value: Amount::from_sat(
+                    incoming_swapcoin.contract_tx.output[0].value.to_sat() - miner_fee,
+                ),
             }],
             lock_time: LockTime::ZERO,
-            version: 2,
+            version: Version::TWO,
         };
         let index = 0;
         let preimage = Vec::new();
@@ -4300,7 +4179,7 @@ mod tests {
                 index,
                 &tx.clone(),
                 &mut tx.input[0],
-                incoming_swapcoin.contract_tx.output[0].value,
+                incoming_swapcoin.contract_tx.output[0].value.to_sat(),
                 &preimage,
             )
             .unwrap();
@@ -4313,14 +4192,14 @@ mod tests {
         let secp = Secp256k1::new();
         let other_privkey = PrivateKey {
             compressed: true,
-            network: bitcoin::Network::Bitcoin,
+            network: bitcoin::NetworkKind::Test,
             inner: secp256k1::SecretKey::from_str(
                 "0000000000000000000000000000000000000000000000000000000000000001",
             )
             .unwrap(),
         };
         let mut input = TxIn::default();
-        let output = TxOut::default();
+        let output = TxOut::NULL;
         let incoming_swapcoin = IncomingSwapCoin {
             my_privkey: secp256k1::SecretKey::from_str(
                 "0000000000000000000000000000000000000000000000000000000000000003",
@@ -4337,7 +4216,7 @@ mod tests {
                 input: vec![input.clone()],
                 output: vec![output.clone()],
                 lock_time: LockTime::ZERO,
-                version: 2,
+                version: Version::TWO,
             },
             contract_redeemscript: ScriptBuf::default(),
             hashlock_privkey: secp256k1::SecretKey::from_str(
@@ -4357,7 +4236,7 @@ mod tests {
         let mut tx = Transaction {
             input: vec![TxIn {
                 previous_output: OutPoint {
-                    txid: incoming_swapcoin.contract_tx.txid(),
+                    txid: incoming_swapcoin.contract_tx.compute_txid(),
                     vout: 0, //contract_tx is one-input-one-output
                 },
                 sequence: Sequence(1), //hashlock spends must have 1 because of the `OP_CSV 1`
@@ -4366,10 +4245,12 @@ mod tests {
             }],
             output: vec![TxOut {
                 script_pubkey: destination_address.script_pubkey(),
-                value: incoming_swapcoin.contract_tx.output[0].value - miner_fee,
+                value: Amount::from_sat(
+                    incoming_swapcoin.contract_tx.output[0].value.to_sat() - miner_fee,
+                ),
             }],
             lock_time: LockTime::ZERO,
-            version: 2,
+            version: Version::TWO,
         };
         let index = 0;
         let input_value = 100;
@@ -4379,7 +4260,7 @@ mod tests {
                 index,
                 &tx.clone(),
                 &mut tx.input[0],
-                incoming_swapcoin.contract_tx.output[0].value,
+                incoming_swapcoin.contract_tx.output[0].value.to_sat(),
                 &preimage,
             )
             .unwrap();
