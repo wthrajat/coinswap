@@ -7,9 +7,9 @@ use std::{convert::TryFrom, fs, path::PathBuf, str::FromStr};
 
 use std::collections::{HashMap, HashSet};
 
-use bdk::descriptor::calc_checksum;
+use bdk_wallet::descriptor::calc_checksum;
 use bitcoin::{
-    bip32::{ChildNumber, DerivationPath, ExtendedPubKey},
+    bip32::{ChildNumber, DerivationPath, Xpub},
     hashes::{hash160::Hash as Hash160, hex::FromHex},
     secp256k1,
     secp256k1::{Secp256k1, SecretKey},
@@ -17,7 +17,7 @@ use bitcoin::{
     Address, Amount, OutPoint, PublicKey, Script, ScriptBuf, Transaction, Txid,
 };
 
-use bitcoind::bitcoincore_rpc::{core_rpc_json::ListUnspentResultEntry, Client, RpcApi};
+use bitcoind::bitcoincore_rpc::{bitcoincore_rpc_json::ListUnspentResultEntry, Client, RpcApi};
 
 use crate::{
     protocol::contract,
@@ -141,140 +141,7 @@ type SwapCoinsInfo<'a> = (
 );
 
 impl Wallet {
-    /// Displays addresses based on the specified `DisplayAddressType`.
-    pub fn display_addresses(&self, types: DisplayAddressType) -> Result<(), WalletError> {
-        if types == DisplayAddressType::All || types == DisplayAddressType::MasterKey {
-            println!(
-                "master key = {}, external_index = {}",
-                self.store.master_key, self.store.external_index
-            );
-        }
-        let secp = Secp256k1::new();
-
-        if types == DisplayAddressType::All || types == DisplayAddressType::Seed {
-            let top_branch = ExtendedPubKey::from_priv(
-                &secp,
-                &self
-                    .store
-                    .master_key
-                    .derive_priv(
-                        &secp,
-                        &DerivationPath::from_str(HARDENDED_DERIVATION).unwrap(),
-                    )
-                    .unwrap(),
-            );
-            for c in 0..2 {
-                println!(
-                    "{} branch from seed",
-                    if c == 0 { "Receive" } else { "Change" }
-                );
-                let recv_or_change_branch = top_branch
-                    .ckd_pub(&secp, ChildNumber::Normal { index: c })
-                    .unwrap();
-                for i in 0..self.get_addrss_import_count() {
-                    let pubkey = PublicKey {
-                        compressed: true,
-                        inner: recv_or_change_branch
-                            .ckd_pub(&secp, ChildNumber::Normal { index: i })
-                            .unwrap()
-                            .public_key,
-                    };
-                    let addr = Address::p2wpkh(&pubkey, self.store.network).unwrap();
-                    println!("{} from seed {}/{}/{}", addr, HARDENDED_DERIVATION, c, i);
-                }
-            }
-        }
-
-        if types == DisplayAddressType::All
-            || types == DisplayAddressType::IncomingSwap
-            || types == DisplayAddressType::Swap
-        {
-            println!(
-                "incoming swapcoin count = {}",
-                self.store.incoming_swapcoins.len()
-            );
-            for (multisig_redeemscript, swapcoin) in &self.store.incoming_swapcoins {
-                println!(
-                    "{} incoming_swapcoin other_privkey={} contract_txid={}",
-                    Address::p2wsh(multisig_redeemscript, self.store.network),
-                    if swapcoin.other_privkey.is_some() {
-                        "known  "
-                    } else {
-                        "unknown"
-                    },
-                    swapcoin.contract_tx.txid()
-                );
-            }
-        }
-
-        if types == DisplayAddressType::All
-            || types == DisplayAddressType::OutgoingSwap
-            || types == DisplayAddressType::Swap
-        {
-            println!(
-                "outgoing swapcoin count = {}",
-                self.store.outgoing_swapcoins.len()
-            );
-            for (multisig_redeemscript, swapcoin) in &self.store.outgoing_swapcoins {
-                println!(
-                    "{} outgoing_swapcoin contract_txid={}",
-                    Address::p2wsh(multisig_redeemscript, self.store.network),
-                    swapcoin.contract_tx.txid()
-                );
-            }
-        }
-
-        if types == DisplayAddressType::All
-            || types == DisplayAddressType::IncomingContract
-            || types == DisplayAddressType::Contract
-        {
-            println!(
-                "incoming swapcoin count = {}",
-                self.store.incoming_swapcoins.len()
-            );
-            for swapcoin in self.store.incoming_swapcoins.values() {
-                println!(
-                    "{} incoming_swapcoin_contract hashvalue={} locktime={} contract_txid={}",
-                    Address::p2wsh(&swapcoin.contract_redeemscript, self.store.network),
-                    swapcoin.get_hashvalue(),
-                    swapcoin.get_timelock(),
-                    swapcoin.contract_tx.txid()
-                );
-            }
-        }
-
-        if types == DisplayAddressType::All
-            || types == DisplayAddressType::OutgoingContract
-            || types == DisplayAddressType::Contract
-        {
-            println!(
-                "outgoing swapcoin count = {}",
-                self.store.outgoing_swapcoins.len()
-            );
-            for swapcoin in self.store.outgoing_swapcoins.values() {
-                println!(
-                    "{} outgoing_swapcoin_contract hashvalue={} locktime={} contract_txid={}",
-                    Address::p2wsh(&swapcoin.contract_redeemscript, self.store.network),
-                    swapcoin.get_hashvalue(),
-                    swapcoin.get_timelock(),
-                    swapcoin.contract_tx.txid()
-                );
-            }
-        }
-
-        if types == DisplayAddressType::All || types == DisplayAddressType::FidelityBond {
-            for (bond, _, _) in self.store.fidelity_bond.values() {
-                let locktime = bond.lock_time;
-                println!(
-                    "[{}] locktime={}",
-                    Address::from_script(&bond.script_pub_key(), self.store.network).unwrap(),
-                    locktime
-                );
-            }
-        }
-        Ok(())
-    }
-
+    /// Initialize the wallet at a given path.
     pub fn init(
         path: &PathBuf,
         rpc_config: &RPCConfig,
@@ -543,7 +410,7 @@ impl Wallet {
     /// Wallet descriptors are derivable. Currently only supports two KeychainKind. Internal and External.
     fn get_wallet_descriptors(&self) -> Result<HashMap<KeychainKind, String>, WalletError> {
         let secp = Secp256k1::new();
-        let wallet_xpub = ExtendedPubKey::from_priv(
+        let wallet_xpub = Xpub::from_priv(
             &secp,
             &self
                 .store
@@ -617,7 +484,7 @@ impl Wallet {
     /// Core wallet label is the master XPub fingerint.
     pub fn get_core_wallet_label(&self) -> String {
         let secp = Secp256k1::new();
-        let m_xpub = ExtendedPubKey::from_priv(&secp, &self.store.master_key);
+        let m_xpub = Xpub::from_priv(&secp, &self.store.master_key);
         m_xpub.fingerprint().to_string()
     }
 
@@ -1087,7 +954,7 @@ impl Wallet {
         let privkey = self
             .store
             .master_key
-            .ckd_priv(&secp, ChildNumber::from_hardened_idx(0).unwrap())
+            .derive_priv(&secp, &[ChildNumber::from_hardened_idx(0).unwrap()])
             .unwrap()
             .private_key;
 
@@ -1134,14 +1001,19 @@ impl Wallet {
                         compressed: true,
                         inner: privkey.public_key(&secp),
                     };
-                    let scriptcode = ScriptBuf::new_p2pkh(&pubkey.pubkey_hash());
+                    let scriptcode = ScriptBuf::new_p2wpkh(&pubkey.wpubkey_hash().unwrap());
                     let sighash = SighashCache::new(&tx_clone)
-                        .segwit_signature_hash(ix, &scriptcode, input_value, EcdsaSighashType::All)
+                        .p2wpkh_signature_hash(
+                            ix,
+                            &scriptcode,
+                            Amount::from_sat(input_value),
+                            EcdsaSighashType::All,
+                        )
                         .unwrap();
                     //use low-R value signatures for privacy
                     //https://en.bitcoin.it/wiki/Privacy#Wallet_fingerprinting
                     let signature = secp.sign_ecdsa_low_r(
-                        &secp256k1::Message::from_slice(&sighash[..]).unwrap(),
+                        &secp256k1::Message::from_digest_slice(&sighash[..]).unwrap(),
                         &privkey,
                     );
                     let mut sig_serialised = signature.serialize_der().to_vec();
@@ -1169,15 +1041,15 @@ impl Wallet {
                     let privkey = self.get_fidelity_keypair(index)?.secret_key();
                     let redeemscript = self.get_fidelity_reedemscript(index)?;
                     let sighash = SighashCache::new(&tx_clone)
-                        .segwit_signature_hash(
+                        .p2wsh_signature_hash(
                             ix,
                             &redeemscript,
-                            input_value,
+                            Amount::from_sat(input_value),
                             EcdsaSighashType::All,
                         )
                         .unwrap();
                     let sig = secp.sign_ecdsa(
-                        &secp256k1::Message::from_slice(&sighash[..]).unwrap(),
+                        &secp256k1::Message::from_digest_slice(&sighash[..]).unwrap(),
                         &privkey,
                     );
 
@@ -1322,10 +1194,10 @@ impl Wallet {
             let funding_amount = my_funding_tx.output[utxo_index as usize].value;
             let my_senders_contract_tx = contract::create_senders_contract_tx(
                 OutPoint {
-                    txid: my_funding_tx.txid(),
+                    txid: my_funding_tx.compute_txid(),
                     vout: utxo_index,
                 },
-                funding_amount,
+                funding_amount.to_sat(),
                 &contract_redeemscript,
             );
 
@@ -1336,7 +1208,7 @@ impl Wallet {
                 my_senders_contract_tx,
                 contract_redeemscript,
                 timelock_privkey,
-                funding_amount,
+                funding_amount.to_sat(),
             ));
         }
 
