@@ -107,51 +107,6 @@ impl KeychainKind {
 
 const WATCH_ONLY_SWAPCOIN_LABEL: &str = "watchonly_swapcoin_label";
 
-/// Enum representing different types of addresses to display.
-#[derive(Clone, PartialEq, Debug)]
-pub enum DisplayAddressType {
-    /// Display all types of addresses.
-    All,
-    /// Display information related to the master key.
-    MasterKey,
-    /// Display addresses derived from the seed.
-    Seed,
-    /// Display information related to incoming swap transactions.
-    IncomingSwap,
-    /// Display information related to outgoing swap transactions.
-    OutgoingSwap,
-    /// Display information related to swap transactions (both incoming and outgoing).
-    Swap,
-    /// Display information related to incoming contract transactions.
-    IncomingContract,
-    /// Display information related to outgoing contract transactions.
-    OutgoingContract,
-    /// Display information related to contract transactions (both incoming and outgoing).
-    Contract,
-    /// Display information related to fidelity bonds.
-    FidelityBond,
-}
-
-impl FromStr for DisplayAddressType {
-    type Err = &'static str;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Ok(match s {
-            "all" => DisplayAddressType::All,
-            "masterkey" => DisplayAddressType::MasterKey,
-            "seed" => DisplayAddressType::Seed,
-            "incomingswap" => DisplayAddressType::IncomingSwap,
-            "outgoingswap" => DisplayAddressType::OutgoingSwap,
-            "swap" => DisplayAddressType::Swap,
-            "incomingcontract" => DisplayAddressType::IncomingContract,
-            "outgoingcontract" => DisplayAddressType::OutgoingContract,
-            "contract" => DisplayAddressType::Contract,
-            "fidelitybond" => DisplayAddressType::FidelityBond,
-            _ => Err("unknown type")?,
-        })
-    }
-}
-
 /// Enum representing additional data needed to spend a UTXO, in addition to `ListUnspentResultEntry`.
 // data needed to find information  in addition to ListUnspentResultEntry
 // about a UTXO required to spend it
@@ -2467,10 +2422,12 @@ pub struct WalletStore {
     pub(super) prevout_to_contract_map: HashMap<OutPoint, ScriptBuf>,
     /// Map for all the fidelity bond information. (index, (Bond, script_pubkey, is_spent)).
     pub(super) fidelity_bond: HashMap<u32, (FidelityBond, ScriptBuf, bool)>,
-    //TODO: Add last synced height and Wallet birthday.
+    
     pub(super) last_synced_height: Option<u64>,
 
     pub(super) wallet_birthday: Option<u64>,
+    /// The file path of the wallet store.
+    pub(crate) wallet_file_path: PathBuf,
 }
 
 impl WalletStore {
@@ -2499,6 +2456,7 @@ impl WalletStore {
             fidelity_bond: HashMap::new(),
             last_synced_height: None,
             wallet_birthday,
+            wallet_file_path: path.clone(),
         };
 
         std::fs::create_dir_all(path.parent().expect("Path should NOT be root!"))?;
@@ -2526,7 +2484,8 @@ impl WalletStore {
     pub fn read_from_disk(path: &PathBuf) -> Result<Self, WalletError> {
         let wallet_file = OpenOptions::new().read(true).open(path)?;
         let reader = BufReader::new(wallet_file);
-        let store: Self = serde_cbor::from_reader(reader)?;
+        let mut store: Self = serde_cbor::from_reader(reader)?;
+        store.wallet_file_path = path.clone();
         Ok(store)
     }
 }
