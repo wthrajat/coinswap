@@ -2422,7 +2422,7 @@ pub struct WalletStore {
     pub(super) prevout_to_contract_map: HashMap<OutPoint, ScriptBuf>,
     /// Map for all the fidelity bond information. (index, (Bond, script_pubkey, is_spent)).
     pub(super) fidelity_bond: HashMap<u32, (FidelityBond, ScriptBuf, bool)>,
-    
+
     pub(super) last_synced_height: Option<u64>,
 
     pub(super) wallet_birthday: Option<u64>,
