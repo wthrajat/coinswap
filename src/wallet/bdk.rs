@@ -237,8 +237,14 @@ impl Wallet {
         let kind_descriptor_map = wallet
             .create_wallet_descriptors()
             .expect("failed to create descriptors");
-        let signer_map = Wallet::create_signers(&mut index, &secp, kind_descriptor_map, network)
-            .map_err(NewError::Descriptor)?;
+        let kind_descriptor_map_ref: HashMap<_, _> = kind_descriptor_map
+            .iter()
+            .map(|(k, v)| (k.clone(), v))
+            .collect();
+
+        let signer_map =
+            Wallet::create_signers(&mut index, &secp, kind_descriptor_map_ref, network)
+                .map_err(NewError::Descriptor)?;
 
         wallet.signers = signer_map;
 
@@ -1488,7 +1494,7 @@ pub(crate) fn into_wallet_descriptor_checked<T: IntoWalletDescriptor>(
 }
 
 impl Wallet {
-    fn create_wallet_descriptors(&self) -> Result<HashMap<KeychainKind, &str>, anyhow::Error> {
+    fn create_wallet_descriptors(&self) -> Result<HashMap<KeychainKind, String>, anyhow::Error> {
         // create master_key from seed
 
         let secp = Secp256k1::new();
@@ -1520,8 +1526,7 @@ impl Wallet {
                 "{}#{}",
                 descriptor_without_checksum,
                 calc_checksum(&descriptor_without_checksum).unwrap()
-            )
-            .as_str();
+            );
             // TODO: will always return None
             kind_descriptor_map.insert(*keychain, descriptor);
         }
