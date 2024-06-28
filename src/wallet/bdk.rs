@@ -73,7 +73,7 @@ use bip39::Mnemonic;
 // data in the bitcoin core wallet
 // for example which privkey corresponds to a scriptpubkey is stored in hd paths
 
-const HARDENDED_DERIVATION: &str = "m/84'/1'/0'";
+pub const HARDENDED_DERIVATION: &str = "m/84'/1'/0'";
 
 /// Represents a Bitcoin wallet with associated functionality and data.
 pub struct Wallet {
@@ -82,7 +82,7 @@ pub struct Wallet {
     pub(crate) store: WalletStore,
 }
 
-/// Speicfy the keychain derivation path from [`HARDENDED_DERIVATION`]
+/// Specify the keychain derivation path from [`HARDENDED_DERIVATION`]
 /// Each kind represents an unhardened index value. Starting with External = 0.
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Clone, Copy)]
 pub enum KeychainKind {
@@ -1869,9 +1869,6 @@ const BOND_VALUE_EXPONENT: f64 = 1.3;
 // Set as a real number, i.e. 1 = 100% and 0.01 = 1%
 const BOND_VALUE_INTEREST_RATE: f64 = 0.015;
 
-/// Constant representing the derivation path for fidelity addresses.
-const FIDELITY_DERIVATION_PATH: &str = "m/84'/0'/0'/2";
-
 /// Error structure defining possible fidelity related errors
 #[derive(Debug)]
 pub enum FidelityError {
@@ -2035,8 +2032,11 @@ impl Wallet {
     /// Get the [KeyPair] for the fidelity bond at given index.
     pub fn get_fidelity_keypair(&self, index: u32) -> Result<Keypair, WalletError> {
         let secp = Secp256k1::new();
-
-        let derivation_path = DerivationPath::from_str(FIDELITY_DERIVATION_PATH)?;
+        let derivation_path = DerivationPath::from_str(&format!(
+            "{}/{}",
+            HARDENDED_DERIVATION,
+            KeychainKind::Fidelity.index_num()
+        ))?;
 
         let child_derivation_path = derivation_path.child(ChildNumber::Normal { index });
 
@@ -2058,7 +2058,7 @@ impl Wallet {
     }
 
     /// Get the next fidelity bond address. If no fidelity bond is created
-    /// returned address will be derived from index 0, of the [FIDELITY_DERIVATION_PATH]
+    /// returned address will be derived from index 0, of the Derivation Path of Fidelity Keychain
     pub fn get_next_fidelity_address(
         &self,
         locktime: LockTime,

@@ -25,7 +25,7 @@ use crate::{
     wallet::{UTXOSpendInfo, Wallet},
 };
 
-use super::WalletError;
+use super::{WalletError, HARDENDED_DERIVATION};
 
 // To (strongly) disincentivize Sybil behavior, the value assessment of the bond
 // is based on the (time value of the bond)^x here x is the bond_value_exponent,
@@ -38,9 +38,6 @@ const BOND_VALUE_EXPONENT: f64 = 1.3;
 // https://gist.github.com/chris-belcher/87ebbcbb639686057a389acb9ab3e25b#determining-interest-rate-r
 // Set as a real number, i.e. 1 = 100% and 0.01 = 1%
 const BOND_VALUE_INTEREST_RATE: f64 = 0.015;
-
-/// Constant representing the derivation path for fidelity addresses.
-const FIDELITY_DERIVATION_PATH: &str = "m/84'/0'/0'/2";
 
 /// Error structure defining possible fidelity related errors
 #[derive(Debug)]
@@ -205,8 +202,7 @@ impl Wallet {
     /// Get the [KeyPair] for the fidelity bond at given index.
     pub fn get_fidelity_keypair(&self, index: u32) -> Result<Keypair, WalletError> {
         let secp = Secp256k1::new();
-
-        let derivation_path = DerivationPath::from_str(FIDELITY_DERIVATION_PATH)?;
+        let derivation_path = DerivationPath::from_str(&format!("{}/2", HARDENDED_DERIVATION))?;
 
         let child_derivation_path = derivation_path.child(ChildNumber::Normal { index });
 
@@ -228,7 +224,7 @@ impl Wallet {
     }
 
     /// Get the next fidelity bond address. If no fidelity bond is created
-    /// returned address will be derived from index 0, of the [FIDELITY_DERIVATION_PATH]
+    /// returned address will be derived from index 0, of the Derivation Path of Fidelity Keychain.
     pub fn get_next_fidelity_address(
         &self,
         locktime: LockTime,
