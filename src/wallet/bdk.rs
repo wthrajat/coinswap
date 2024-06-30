@@ -82,18 +82,23 @@ pub struct Wallet {
     pub(crate) store: WalletStore,
 }
 
-/// Specify the keychain derivation path from [`HARDENDED_DERIVATION`]
-/// Each kind represents an unhardened index value. Starting with External = 0.
+/// Types of keychains
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Clone, Copy)]
 pub enum KeychainKind {
+    /// External: Derives recipient addresses.
     External,
+    /// Internal: Derives change addresses.
     Internal,
+    /// Fidelity: Generates keypair for fidelity bonds.
     Fidelity,
+    /// SwapCoin: Generates keypair of 2-of-2 multisig in funding transations.
     SwapCoin,
+    /// Contract: Generates Keypair for hashlock and timelock transactions.
     Contract,
 }
 
 impl KeychainKind {
+    /// Specify the keychain derivation path from [`HARDENDED_DERIVATION`]
     fn index_num(&self) -> u32 {
         match self {
             Self::External => 0,
