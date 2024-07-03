@@ -95,9 +95,9 @@ use bdk_wallet::wallet::{LoadError, NewError};
 pub const HARDENDED_DERIVATION: &str = "m/84'/1'/0'";
 
 pub struct Wallet {
-    signers: HashMap<KeychainKind, Arc<SignersContainer>>,
+    signers: HashMap<Keychain, Arc<SignersContainer>>,
     chain: LocalChain,
-    indexed_graph: IndexedTxGraph<ConfirmationTimeHeightAnchor, KeychainTxOutIndex<KeychainKind>>,
+    indexed_graph: IndexedTxGraph<ConfirmationTimeHeightAnchor, KeychainTxOutIndex<Keychain>>,
     persist: Persist<ChangeSet>,
     wallet_store: WalletStore,
     network: Network,
@@ -107,8 +107,9 @@ pub struct Wallet {
 
 /// Types of KeyChains
 #[derive(
-    Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Clone, Copy, serde::Deserialize, serde::Serialize)]
-pub enum KeychainKind {
+    Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Clone, Copy, serde::Deserialize, serde::Serialize,
+)]
+pub enum Keychain {
     /// External: Derives recipient addresses.
     External,
     /// Internal: Derives change addresses.
@@ -147,23 +148,10 @@ impl Keychain {
     }
 }
 
-    pub fn iterator() -> std::slice::Iter<'static, KeychainKind> {
-        static KINDS: [KeychainKind; 5] = [
-            KeychainKind::External,
-            KeychainKind::Internal,
-            KeychainKind::Fidelity,
-            KeychainKind::SwapCoin,
-            KeychainKind::Contract,
-        ];
-
-        KINDS.iter()
-    }
-}
-
 const WATCH_ONLY_SWAPCOIN_LABEL: &str = "watchonly_swapcoin_label";
 
 /// The changes made to a wallet by applying an [`Update`].
-pub type ChangeSet = bdk_persist::CombinedChangeSet<KeychainKind, ConfirmationTimeHeightAnchor>;
+pub type ChangeSet = bdk_persist::CombinedChangeSet<Keychain, ConfirmationTimeHeightAnchor>;
 
 /// Enum representing additional data needed to spend a UTXO, in addition to `ListUnspentResultEntry`.
 // data needed to find information  in addition to ListUnspentResultEntry
@@ -226,7 +214,7 @@ impl Wallet {
 
         let secp = Secp256k1::new();
         let (chain, chain_changeset) = LocalChain::from_genesis_hash(genesis_hash);
-        let mut index = KeychainTxOutIndex::<KeychainKind>::default();
+        let mut index = KeychainTxOutIndex::<Keychain>::default();
 
         // create descriptors for each kind from seedpharse & passphrase
         // containig Xpriv
@@ -279,9 +267,9 @@ impl Wallet {
         let network = changeset.network.ok_or(LoadError::MissingNetwork)?;
         let chain =
             LocalChain::from_changeset(changeset.chain).map_err(|_| LoadError::MissingGenesis)?;
-        let mut index = KeychainTxOutIndex::<KeychainKind>::default();
+        let mut index = KeychainTxOutIndex::<Keychain>::default();
 
-        let kind_descriptor_map: HashMap<KeychainKind, Descriptor<DescriptorPublicKey>> = changeset
+        let kind_descriptor_map: HashMap<Keychain, Descriptor<DescriptorPublicKey>> = changeset
             .indexed_tx_graph
             .indexer
             .keychains_added
@@ -1538,7 +1526,7 @@ pub(crate) fn into_wallet_descriptor_checked<T: IntoWalletDescriptor>(
 }
 
 impl Wallet {
-    fn create_wallet_descriptors(&self) -> Result<HashMap<KeychainKind, String>, anyhow::Error> {
+    fn create_wallet_descriptors(&self) -> Result<HashMap<Keychain, String>, anyhow::Error> {
         // create master_key from seed
 
         let secp = Secp256k1::new();
@@ -1559,12 +1547,12 @@ impl Wallet {
 
         let mut kind_descriptor_map = HashMap::new();
         //  let descriptors =
-        for keychain in KeychainKind::iterator() {
+        for keychain in Keychain::iterator() {
             let descriptor_without_checksum = match *keychain {
-                KeychainKind::External | KeychainKind::Internal => {
+                Keychain::External | Keychain::Internal => {
                     format!("wpkh({}/{}/*)", wallet_xpriv, keychain.index_num())
                 }
-                KeychainKind::Fidelity | KeychainKind::SwapCoin | KeychainKind::Contract => todo!(),
+                Keychain::Fidelity | Keychain::SwapCoin | Keychain::Contract => todo!(),
             };
             let descriptor = format!(
                 "{}#{}",
@@ -1582,15 +1570,15 @@ impl Wallet {
 //_____________________________________WALLET/SIGNER______________________________________________
 impl Wallet {
     fn create_signers<E>(
-        index: &mut KeychainTxOutIndex<KeychainKind>,
+        index: &mut KeychainTxOutIndex<Keychain>,
         secp: &Secp256k1<All>,
-        kind_descriptor_map: HashMap<KeychainKind, E>,
+        kind_descriptor_map: HashMap<Keychain, E>,
         network: Network,
-    ) -> Result<HashMap<KeychainKind, Arc<SignersContainer>>, DescriptorError>
+    ) -> Result<HashMap<Keychain, Arc<SignersContainer>>, DescriptorError>
     where
         E: IntoWalletDescriptor,
     {
-        let mut signers_map: HashMap<KeychainKind, Arc<SignersContainer>> = HashMap::new();
+        let mut signers_map: HashMap<Keychain, Arc<SignersContainer>> = HashMap::new();
 
         for (kind, descriptor) in kind_descriptor_map.into_iter() {
             let (descriptor, keymap) = into_wallet_descriptor_checked(descriptor, secp, network)?;
@@ -1602,13 +1590,13 @@ impl Wallet {
         Ok(signers_map)
     }
 
-    pub fn get_signers(&self, keychain: KeychainKind) -> Arc<SignersContainer> {
+    pub fn get_signers(&self, keychain: Keychain) -> Arc<SignersContainer> {
         Arc::clone(self.signers.get(&keychain).expect("must not fail"))
     }
 
     pub fn add_signer(
         &mut self,
-        keychain: KeychainKind,
+        keychain: Keychain,
         ordering: SignerOrdering,
         signer: Arc<dyn TransactionSigner>,
     ) {
