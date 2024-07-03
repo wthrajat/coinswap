@@ -92,7 +92,7 @@ use bdk_wallet::wallet::{LoadError, NewError};
 // data in the bitcoin core wallet
 // for example which privkey corresponds to a scriptpubkey is stored in hd paths
 
-const HARDENDED_DERIVATION: &str = "m/84'/1'/0'";
+pub const HARDENDED_DERIVATION: &str = "m/84'/1'/0'";
 
 pub struct Wallet {
     signers: HashMap<KeychainKind, Arc<SignersContainer>>,
@@ -105,29 +105,47 @@ pub struct Wallet {
     rpc: Client,
 }
 
-/// Speicfy the keychain derivation path from [`HARDENDED_DERIVATION`]
-/// Each kind represents an unhardened index value. Starting with External = 0.
+/// Types of KeyChains
 #[derive(
-    Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Clone, Copy, serde::Deserialize, serde::Serialize,
-)]
+    Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Clone, Copy, serde::Deserialize, serde::Serialize)]
 pub enum KeychainKind {
+    /// External: Derives recipient addresses.
     External,
+    /// Internal: Derives change addresses.
     Internal,
-    Fidelity,
-    SwapCoin,
-    Contract,
+    /// Fidelity: Generates keypair for fidelity bonds.
+    Fidelity { count: u32 },
+    /// SwapCoin: Generates keypair of 2-of-2 multisig in funding transations.
+    SwapCoin { count: u32 },
+    /// Contract: Generates Keypair for hashlock and timelock transactions.
+    Contract { count: u32 },
 }
 
-impl KeychainKind {
+impl Keychain {
+    /// Specify the keychain derivation path from [`HARDENDED_DERIVATION`]
     fn index_num(&self) -> u32 {
         match self {
             Self::External => 0,
             Self::Internal => 1,
-            Self::Fidelity => 2,
-            Self::SwapCoin => 3,
-            Self::Contract => 4,
+            Self::Fidelity { .. } => 2,
+            Self::SwapCoin { .. } => 3,
+            Self::Contract { .. } => 4,
         }
     }
+
+    // returns path of given keychain.
+    fn path(keychain: Keychain) -> String {
+        let keychain_type = match keychain {
+            Keychain::External => String::from("0"),
+            Keychain::Internal => String::from("1"),
+            Keychain::Fidelity { count } => format!("2/{}", count),
+            Keychain::SwapCoin { count } => format!("3/{}", count),
+            Keychain::Contract { count } => format!("4/{}", count),
+        };
+
+        format!("{}/{}", HARDENDED_DERIVATION, keychain_type)
+    }
+}
 
     pub fn iterator() -> std::slice::Iter<'static, KeychainKind> {
         static KINDS: [KeychainKind; 5] = [
@@ -559,8 +577,8 @@ impl Wallet {
 
     //pub fn get_recovery_phrase_from_file()
 
-    /// Wallet descriptors are derivable. Currently only supports two KeychainKind. Internal and External.
-    fn get_wallet_descriptors(&self) -> Result<HashMap<KeychainKind, String>, WalletError> {
+    /// Wallet descriptors are derivable. Currently only supports two Keychain. Internal and External.
+    fn get_wallet_descriptors(&self) -> Result<HashMap<Keychain, String>, WalletError> {
         let secp = Secp256k1::new();
         let wallet_xpub = Xpub::from_priv(
             &secp,
@@ -575,7 +593,7 @@ impl Wallet {
         );
 
         // Get descriptors for external and internal keychain. Other chains are not supported yet.
-        let x = [KeychainKind::External, KeychainKind::Internal]
+        let x = [Keychain::External, Keychain::Internal]
             .iter()
             .map(|keychain| {
                 let descriptor_without_checksum =
@@ -587,7 +605,7 @@ impl Wallet {
                 );
                 (*keychain, decriptor)
             })
-            .collect::<HashMap<KeychainKind, String>>();
+            .collect::<HashMap<Keychain, String>>();
 
         Ok(x)
         //descriptors.map_err(|e| TeleportError::Rpc(e))
@@ -1026,7 +1044,7 @@ impl Wallet {
     }
 
     /// Finds the next unused index in the HD keychain.
-    pub(super) fn find_hd_next_index(&self, keychain: KeychainKind) -> Result<u32, WalletError> {
+    pub(super) fn find_hd_next_index(&self, keychain: Keychain) -> Result<u32, WalletError> {
         let mut max_index: i32 = -1;
         let all_utxos = self.get_all_utxo()?;
         let mut utxos = self.list_descriptor_utxo_spend_info(Some(&all_utxos))?;
@@ -1055,7 +1073,7 @@ impl Wallet {
     pub fn get_next_external_address(&mut self) -> Result<Address, WalletError> {
         let descriptors = self.get_wallet_descriptors()?;
         let receive_branch_descriptor = descriptors
-            .get(&KeychainKind::External)
+            .get(&Keychain::External)
             .expect("external keychain expected");
         let receive_address = self.rpc.derive_addresses(
             receive_branch_descriptor,
@@ -1071,10 +1089,10 @@ impl Wallet {
 
     /// Gets the next internal addresses from the HD keychain.
     pub fn get_next_internal_addresses(&self, count: u32) -> Result<Vec<Address>, WalletError> {
-        let next_change_addr_index = self.find_hd_next_index(KeychainKind::Internal)?;
+        let next_change_addr_index = self.find_hd_next_index(Keychain::Internal)?;
         let descriptors = self.get_wallet_descriptors()?;
         let change_branch_descriptor = descriptors
-            .get(&KeychainKind::Internal)
+            .get(&Keychain::Internal)
             .expect("Internal Keychain expected");
         let addresses = self.rpc.derive_addresses(
             change_branch_descriptor,
@@ -2119,9 +2137,6 @@ const BOND_VALUE_EXPONENT: f64 = 1.3;
 // Set as a real number, i.e. 1 = 100% and 0.01 = 1%
 const BOND_VALUE_INTEREST_RATE: f64 = 0.015;
 
-/// Constant representing the derivation path for fidelity addresses.
-const FIDELITY_DERIVATION_PATH: &str = "m/84'/0'/0'/2";
-
 /// Error structure defining possible fidelity related errors
 #[derive(Debug)]
 pub enum FidelityError {
@@ -2285,8 +2300,11 @@ impl Wallet {
     /// Get the [KeyPair] for the fidelity bond at given index.
     pub fn get_fidelity_keypair(&self, index: u32) -> Result<Keypair, WalletError> {
         let secp = Secp256k1::new();
-
-        let derivation_path = DerivationPath::from_str(FIDELITY_DERIVATION_PATH)?;
+        let derivation_path = DerivationPath::from_str(&format!(
+            "{}/{}",
+            HARDENDED_DERIVATION,
+            Keychain::Fidelity { count: 0 }.index_num()
+        ))?;
 
         let child_derivation_path = derivation_path.child(ChildNumber::Normal { index });
 
@@ -2308,7 +2326,7 @@ impl Wallet {
     }
 
     /// Get the next fidelity bond address. If no fidelity bond is created
-    /// returned address will be derived from index 0, of the [FIDELITY_DERIVATION_PATH]
+    /// returned address will be derived from index 0, of the Derivation Path of Fidelity Keychain
     pub fn get_next_fidelity_address(
         &self,
         locktime: LockTime,
@@ -3533,7 +3551,7 @@ impl Wallet {
             }
         }
 
-        let max_external_index = self.find_hd_next_index(KeychainKind::External)?;
+        let max_external_index = self.find_hd_next_index(Keychain::External)?;
         self.update_external_index(max_external_index)?;
         Ok(())
     }

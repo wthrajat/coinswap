@@ -12,7 +12,7 @@ mod swapcoin;
 #[allow(dead_code)]
 mod bdk;
 
-pub use api::{DisplayAddressType, UTXOSpendInfo, Wallet};
+pub use api::{DisplayAddressType, UTXOSpendInfo, Wallet, HARDENDED_DERIVATION};
 pub use direct_send::{CoinToSpend, Destination, SendAmount};
 pub use error::WalletError;
 pub use fidelity::{FidelityBond, FidelityError};
