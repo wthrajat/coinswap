@@ -240,10 +240,8 @@ impl Wallet {
         let kind_descriptor_map = wallet
             .create_wallet_descriptors()
             .expect("failed to create descriptors");
-        let kind_descriptor_map_ref: HashMap<_, _> = kind_descriptor_map
-            .iter()
-            .map(|(k, v)| (k.clone(), v))
-            .collect();
+        let kind_descriptor_map_ref: HashMap<_, _> =
+            kind_descriptor_map.iter().map(|(k, v)| (*k, v)).collect();
 
         let signer_map =
             Wallet::create_signers(&mut index, &secp, kind_descriptor_map_ref, network)
@@ -271,7 +269,6 @@ impl Wallet {
             .keychains_added
             .clone()
             .into_iter()
-            .map(|(kind, descriptor)| (kind, descriptor))
             .collect();
 
         // create the signer mapping
@@ -307,30 +304,22 @@ impl Wallet {
     /// This function adds private keys from each kind of descriptor, except Swapcoin.
     /// The Swapcoin descriptor "wsh(sorted_multi(Xpub1, Xpub2))" contains no private keys.
 
-    pub fn load<C>(
+    pub fn load(
         path: &PathBuf,
         rpc_config: &RPCConfig,
         network: Network,
-    ) -> Result<Self, LoadError>
-    where
-        C: Default
-            + bdk_chain::Append
-            + Serialize
-            + serde::de::DeserializeOwned
-            + core::marker::Send
-            + core::marker::Sync
-            + 'static,
-    {
+    ) -> Result<Self, LoadError> {
         let wallet_store =
             WalletStore::read_from_disk(path).expect("failed to read walletstore from given path");
         const DB_MAGIC: &[u8] = &[0x21, 0x24, 0x48];
-        let store = Store::<C>::create_new(DB_MAGIC, path.clone()).expect("failed to create store");
+        let mut store =
+            Store::<ChangeSet>::create_new(DB_MAGIC, path.clone()).expect("failed to create store");
         let changeset = store
             .load_from_persistence()
             .map_err(LoadError::Persist)?
             .ok_or(LoadError::NotInitialized)?;
 
-        let wallet = Self::load_from_changeset(wallet_store, changeset, rpc_config)?;
+        let mut wallet = Self::load_from_changeset(wallet_store, changeset, rpc_config)?;
 
         // get descriptors containing Xpriv in order to add
         // add signers manually
@@ -341,13 +330,13 @@ impl Wallet {
         for (keychain, descriptor) in kind_descriptor_map {
             let (descriptor, keymap) = descriptor
                 .into_wallet_descriptor(&wallet.secp, network)
-                .map_err(|err| LoadError::Descriptor(err))?;
+                .map_err(LoadError::Descriptor)?;
 
             if !keymap.is_empty() {
                 let signer_container = SignersContainer::build(keymap, &descriptor, &wallet.secp);
 
                 signer_container.signers().into_iter().for_each(|signer| {
-                    wallet.add_signer(keychain, SignerOrdering::default(), *signer)
+                    wallet.add_signer(keychain, SignerOrdering::default(), signer.clone())
                 })
             }
         }
@@ -1587,7 +1576,7 @@ impl Wallet {
 
         for (kind, descriptor) in kind_descriptor_map.into_iter() {
             let (descriptor, keymap) = into_wallet_descriptor_checked(descriptor, secp, network)?;
-            let signers = Arc::new(SignersContainer::build(keymap, &descriptor, &secp));
+            let signers = Arc::new(SignersContainer::build(keymap, &descriptor, secp));
             let _ = index.insert_descriptor(kind, descriptor);
             signers_map.insert(kind, signers);
         }
