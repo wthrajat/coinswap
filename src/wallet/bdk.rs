@@ -105,6 +105,7 @@ pub struct Wallet {
     rpc: Client,
 }
 
+
 /// Types of KeyChains
 #[derive(
     Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Clone, Copy, serde::Deserialize, serde::Serialize,
