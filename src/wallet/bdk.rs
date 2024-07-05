@@ -64,10 +64,11 @@ use crate::{
     utill::{generate_keypair, get_hd_path_from_descriptor, redeemscript_to_scriptpubkey},
 };
 
+#[allow(unused_imports)]
+use bdk_file_store::Store as FileStore;
+use bip39::Mnemonic;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-
-use bip39::Mnemonic;
 
 // these subroutines are coded so that as much as possible they keep all their
 // data in the bitcoin core wallet
@@ -78,8 +79,7 @@ pub const HARDENDED_DERIVATION: &str = "m/84'/1'/0'";
 /// Represents a Bitcoin wallet with associated functionality and data.
 pub struct Wallet {
     pub(crate) rpc: Client,
-    wallet_file_path: PathBuf,
-    pub(crate) store: WalletStore,
+    pub(crate) wallet_store: WalletStore,
 }
 
 /// Types of keychains
@@ -124,51 +124,6 @@ impl Keychain {
 }
 
 const WATCH_ONLY_SWAPCOIN_LABEL: &str = "watchonly_swapcoin_label";
-
-/// Enum representing different types of addresses to display.
-#[derive(Clone, PartialEq, Debug)]
-pub enum DisplayAddressType {
-    /// Display all types of addresses.
-    All,
-    /// Display information related to the master key.
-    MasterKey,
-    /// Display addresses derived from the seed.
-    Seed,
-    /// Display information related to incoming swap transactions.
-    IncomingSwap,
-    /// Display information related to outgoing swap transactions.
-    OutgoingSwap,
-    /// Display information related to swap transactions (both incoming and outgoing).
-    Swap,
-    /// Display information related to incoming contract transactions.
-    IncomingContract,
-    /// Display information related to outgoing contract transactions.
-    OutgoingContract,
-    /// Display information related to contract transactions (both incoming and outgoing).
-    Contract,
-    /// Display information related to fidelity bonds.
-    FidelityBond,
-}
-
-impl FromStr for DisplayAddressType {
-    type Err = &'static str;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Ok(match s {
-            "all" => DisplayAddressType::All,
-            "masterkey" => DisplayAddressType::MasterKey,
-            "seed" => DisplayAddressType::Seed,
-            "incomingswap" => DisplayAddressType::IncomingSwap,
-            "outgoingswap" => DisplayAddressType::OutgoingSwap,
-            "swap" => DisplayAddressType::Swap,
-            "incomingcontract" => DisplayAddressType::IncomingContract,
-            "outgoingcontract" => DisplayAddressType::OutgoingContract,
-            "contract" => DisplayAddressType::Contract,
-            "fidelitybond" => DisplayAddressType::FidelityBond,
-            _ => Err("unknown type")?,
-        })
-    }
-}
 
 /// Enum representing additional data needed to spend a UTXO, in addition to `ListUnspentResultEntry`.
 // data needed to find information  in addition to ListUnspentResultEntry
@@ -227,8 +182,7 @@ impl Wallet {
         )?;
         Ok(Self {
             rpc,
-            wallet_file_path: path.clone(),
-            store,
+            wallet_store: store,
         })
     }
 
@@ -252,43 +206,29 @@ impl Wallet {
         );
         let wallet = Self {
             rpc,
-            wallet_file_path: path.clone(),
-            store,
+            wallet_store: store,
         };
         Ok(wallet)
     }
 
-    /// Deletes the wallet file and returns the result as `Ok(())` on success.
-    pub fn delete_wallet_file(&self) -> Result<(), WalletError> {
-        Ok(fs::remove_file(&self.wallet_file_path)?)
-    }
-
-    /// Returns a reference to the file path of the wallet.
-    pub fn get_file_path(&self) -> &PathBuf {
-        &self.wallet_file_path
-    }
-
     /// Update external index and saves to disk.
     pub fn update_external_index(&mut self, new_external_index: u32) -> Result<(), WalletError> {
-        self.store.external_index = new_external_index;
-        self.save_to_disk()
+        self.wallet_store.external_index = new_external_index;
+        self.wallet_store.save_to_disk()
     }
 
     // pub fn get_external_index(&self) -> u32 {
     //     self.external_index
     // }
 
-    /// Update the existing file. Error if path does not exist.
-    pub fn save_to_disk(&self) -> Result<(), WalletError> {
-        self.store.write_to_disk(&self.wallet_file_path)
-    }
-
     /// Finds an incoming swap coin with the specified multisig redeem script.
     pub fn find_incoming_swapcoin(
         &self,
         multisig_redeemscript: &ScriptBuf,
     ) -> Option<&IncomingSwapCoin> {
-        self.store.incoming_swapcoins.get(multisig_redeemscript)
+        self.wallet_store
+            .incoming_swapcoins
+            .get(multisig_redeemscript)
     }
 
     /// Finds an outgoing swap coin with the specified multisig redeem script.
@@ -296,7 +236,9 @@ impl Wallet {
         &self,
         multisig_redeemscript: &ScriptBuf,
     ) -> Option<&OutgoingSwapCoin> {
-        self.store.outgoing_swapcoins.get(multisig_redeemscript)
+        self.wallet_store
+            .outgoing_swapcoins
+            .get(multisig_redeemscript)
     }
 
     /// Finds a mutable reference to an incoming swap coin with the specified multisig redeem script.
@@ -304,19 +246,21 @@ impl Wallet {
         &mut self,
         multisig_redeemscript: &ScriptBuf,
     ) -> Option<&mut IncomingSwapCoin> {
-        self.store.incoming_swapcoins.get_mut(multisig_redeemscript)
+        self.wallet_store
+            .incoming_swapcoins
+            .get_mut(multisig_redeemscript)
     }
 
     /// Adds an incoming swap coin to the wallet.
     pub fn add_incoming_swapcoin(&mut self, coin: &IncomingSwapCoin) {
-        self.store
+        self.wallet_store
             .incoming_swapcoins
             .insert(coin.get_multisig_redeemscript(), coin.clone());
     }
 
     /// Adds an outgoing swap coin to the wallet.
     pub fn add_outgoing_swapcoin(&mut self, coin: &OutgoingSwapCoin) {
-        self.store
+        self.wallet_store
             .outgoing_swapcoins
             .insert(coin.get_multisig_redeemscript(), coin.clone());
     }
@@ -326,7 +270,10 @@ impl Wallet {
         &mut self,
         multisig_redeemscript: &ScriptBuf,
     ) -> Result<Option<IncomingSwapCoin>, WalletError> {
-        Ok(self.store.incoming_swapcoins.remove(multisig_redeemscript))
+        Ok(self
+            .wallet_store
+            .incoming_swapcoins
+            .remove(multisig_redeemscript))
     }
 
     /// Removes an outgoing swap coin with the specified multisig redeem script from the wallet.
@@ -334,26 +281,29 @@ impl Wallet {
         &mut self,
         multisig_redeemscript: &ScriptBuf,
     ) -> Result<Option<OutgoingSwapCoin>, WalletError> {
-        Ok(self.store.outgoing_swapcoins.remove(multisig_redeemscript))
+        Ok(self
+            .wallet_store
+            .outgoing_swapcoins
+            .remove(multisig_redeemscript))
     }
 
     /// Gets a reference to the list of incoming swap coins in the wallet.
     pub fn get_incoming_swapcoin_list(
         &self,
     ) -> Result<&HashMap<ScriptBuf, IncomingSwapCoin>, WalletError> {
-        Ok(&self.store.incoming_swapcoins)
+        Ok(&self.wallet_store.incoming_swapcoins)
     }
 
     /// Gets a reference to the list of outgoing swap coins in the wallet.
     pub fn get_outgoing_swapcoin_list(
         &self,
     ) -> Result<&HashMap<ScriptBuf, OutgoingSwapCoin>, WalletError> {
-        Ok(&self.store.outgoing_swapcoins)
+        Ok(&self.wallet_store.outgoing_swapcoins)
     }
 
     /// Gets the total count of swap coins in the wallet.
     pub fn get_swapcoins_count(&self) -> usize {
-        self.store.incoming_swapcoins.len() + self.store.outgoing_swapcoins.len()
+        self.wallet_store.incoming_swapcoins.len() + self.wallet_store.outgoing_swapcoins.len()
     }
 
     /// Calculates the total balance of the wallet, including swap coins, live contracts and fidelity bonds.
@@ -435,10 +385,12 @@ impl Wallet {
         contract_scriptpubkey: &Script,
     ) -> Result<bool, WalletError> {
         //let wallet_file_data = Wallet::load_wallet_file_data(&self.wallet_file_path[..])?;
-        Ok(match self.store.prevout_to_contract_map.get(prevout) {
-            Some(c) => c == contract_scriptpubkey,
-            None => true,
-        })
+        Ok(
+            match self.wallet_store.prevout_to_contract_map.get(prevout) {
+                Some(c) => c == contract_scriptpubkey,
+                None => true,
+            },
+        )
     }
 
     /// Dynamic address import count function. 10 for tests, 5000 for production.
@@ -457,7 +409,11 @@ impl Wallet {
         prevout: OutPoint,
         contract: ScriptBuf,
     ) -> Result<(), WalletError> {
-        if let Some(contract) = self.store.prevout_to_contract_map.insert(prevout, contract) {
+        if let Some(contract) = self
+            .wallet_store
+            .prevout_to_contract_map
+            .insert(prevout, contract)
+        {
             log::warn!(
                 "Prevout to Contract map updated.\nExisting Contract: {}",
                 contract
@@ -474,7 +430,7 @@ impl Wallet {
         let wallet_xpub = Xpub::from_priv(
             &secp,
             &self
-                .store
+                .wallet_store
                 .master_key
                 .derive_priv(
                     &secp,
@@ -539,20 +495,20 @@ impl Wallet {
 
     /// Gets the external index from the wallet.
     pub fn get_external_index(&self) -> &u32 {
-        &self.store.external_index
+        &self.wallet_store.external_index
     }
 
     /// Core wallet label is the master XPub fingerint.
     pub fn get_core_wallet_label(&self) -> String {
         let secp = Secp256k1::new();
-        let m_xpub = Xpub::from_priv(&secp, &self.store.master_key);
+        let m_xpub = Xpub::from_priv(&secp, &self.wallet_store.master_key);
         m_xpub.fingerprint().to_string()
     }
 
     fn create_contract_scriptpubkey_outgoing_swapcoin_hashmap(
         &self,
     ) -> HashMap<ScriptBuf, &OutgoingSwapCoin> {
-        self.store
+        self.wallet_store
             .outgoing_swapcoins
             .values()
             .map(|osc| {
@@ -567,7 +523,7 @@ impl Wallet {
     fn create_contract_scriptpubkey_incoming_swapcoin_hashmap(
         &self,
     ) -> HashMap<ScriptBuf, &IncomingSwapCoin> {
-        self.store
+        self.wallet_store
             .incoming_swapcoins
             .values()
             .map(|isc| {
@@ -600,7 +556,7 @@ impl Wallet {
 
     /// Checks if a UTXO belongs to fidelity bonds, and then returns corresponding UTXOSpendInfo
     fn check_if_fidelity(&self, utxo: &ListUnspentResultEntry) -> Option<UTXOSpendInfo> {
-        self.store
+        self.wallet_store
             .fidelity_bond
             .iter()
             .find_map(|(i, (bond, _, _))| {
@@ -657,7 +613,7 @@ impl Wallet {
 
                 let secp = Secp256k1::new();
                 let master_private_key = self
-                    .store
+                    .wallet_store
                     .master_key
                     .derive_priv(
                         &secp,
@@ -809,7 +765,7 @@ impl Wallet {
         self.rpc.unlock_unspent_all()?;
 
         let completed_coinswap_hashvalues = self
-            .store
+            .wallet_store
             .incoming_swapcoins
             .values()
             .filter(|sc| sc.other_privkey.is_some())
@@ -868,7 +824,7 @@ impl Wallet {
     /// A simplification of `find_incomplete_coinswaps` function
     pub fn find_unfinished_swapcoins(&self) -> (Vec<IncomingSwapCoin>, Vec<OutgoingSwapCoin>) {
         let unfinished_incomins = self
-            .store
+            .wallet_store
             .incoming_swapcoins
             .iter()
             .filter_map(|(_, ic)| {
@@ -880,7 +836,7 @@ impl Wallet {
             })
             .collect::<Vec<_>>();
         let unfinished_outgoings = self
-            .store
+            .wallet_store
             .outgoing_swapcoins
             .iter()
             .filter_map(|(_, oc)| {
@@ -968,10 +924,13 @@ impl Wallet {
             .expect("external keychain expected");
         let receive_address = self.rpc.derive_addresses(
             receive_branch_descriptor,
-            Some([self.store.external_index, self.store.external_index]),
+            Some([
+                self.wallet_store.external_index,
+                self.wallet_store.external_index,
+            ]),
         )?[0]
             .clone();
-        self.update_external_index(self.store.external_index + 1)?;
+        self.update_external_index(self.wallet_store.external_index + 1)?;
         Ok(receive_address.assume_checked())
     }
 
@@ -1000,20 +959,20 @@ impl Wallet {
         let mut swap_coin_utxo = self.list_swap_coin_utxo_spend_info(Some(&all_utxos))?;
         utxos.append(&mut swap_coin_utxo);
         let balance: Amount = utxos.iter().fold(Amount::ZERO, |acc, u| acc + u.0.amount);
-        self.store.offer_maxsize = balance.to_sat();
+        self.wallet_store.offer_maxsize = balance.to_sat();
         Ok(())
     }
 
     /// Gets the offer maximum size from the cached value.
     pub fn get_offer_maxsize(&self) -> u64 {
-        self.store.offer_maxsize
+        self.wallet_store.offer_maxsize
     }
 
     /// Gets a tweakable key pair from the master key of the wallet.
     pub fn get_tweakable_keypair(&self) -> (SecretKey, PublicKey) {
         let secp = Secp256k1::new();
         let privkey = self
-            .store
+            .wallet_store
             .master_key
             .derive_priv(&secp, &[ChildNumber::from_hardened_idx(0).unwrap()])
             .unwrap()
@@ -1034,7 +993,7 @@ impl Wallet {
     ) -> Result<(), WalletError> {
         let secp = Secp256k1::new();
         let master_private_key = self
-            .store
+            .wallet_store
             .master_key
             .derive_priv(
                 &secp,
@@ -1300,7 +1259,7 @@ impl Wallet {
         descriptors_to_import.extend(self.get_unimported_wallet_desc()?);
 
         descriptors_to_import.extend(
-            self.store
+            self.wallet_store
                 .incoming_swapcoins
                 .values()
                 .map(|sc| {
@@ -1319,7 +1278,7 @@ impl Wallet {
         );
 
         descriptors_to_import.extend(
-            self.store
+            self.wallet_store
                 .outgoing_swapcoins
                 .values()
                 .map(|sc| {
@@ -1338,7 +1297,7 @@ impl Wallet {
         );
 
         descriptors_to_import.extend(
-            self.store
+            self.wallet_store
                 .incoming_swapcoins
                 .values()
                 .map(|sc| {
@@ -1353,7 +1312,7 @@ impl Wallet {
                 .collect::<Vec<_>>(),
         );
         descriptors_to_import.extend(
-            self.store
+            self.wallet_store
                 .outgoing_swapcoins
                 .values()
                 .map(|sc| {
@@ -1368,14 +1327,16 @@ impl Wallet {
                 .collect::<Vec<_>>(),
         );
 
-        descriptors_to_import.extend(self.store.fidelity_bond.iter().map(|(_, (_, spk, _))| {
-            let descriptor_without_checksum = format!("raw({:x})", spk);
-            format!(
-                "{}#{}",
-                descriptor_without_checksum,
-                calc_checksum(&descriptor_without_checksum).unwrap()
-            )
-        }));
+        descriptors_to_import.extend(self.wallet_store.fidelity_bond.iter().map(
+            |(_, (_, spk, _))| {
+                let descriptor_without_checksum = format!("raw({:x})", spk);
+                format!(
+                    "{}#{}",
+                    descriptor_without_checksum,
+                    calc_checksum(&descriptor_without_checksum).unwrap()
+                )
+            },
+        ));
 
         Ok(descriptors_to_import)
     }
@@ -2027,13 +1988,13 @@ impl FidelityBond {
 impl Wallet {
     /// Get a reference to the fidelity bond store
     pub fn get_fidelity_bonds(&self) -> &HashMap<u32, (FidelityBond, ScriptBuf, bool)> {
-        &self.store.fidelity_bond
+        &self.wallet_store.fidelity_bond
     }
 
     /// Get the highest value fidelity bond. Returns None, if no bond exists.
     pub fn get_highest_fidelity_index(&self) -> Result<Option<u32>, WalletError> {
         Ok(self
-            .store
+            .wallet_store
             .fidelity_bond
             .iter()
             .filter_map(|(i, (_, _, is_spent))| {
@@ -2059,7 +2020,7 @@ impl Wallet {
         let child_derivation_path = derivation_path.child(ChildNumber::Normal { index });
 
         Ok(self
-            .store
+            .wallet_store
             .master_key
             .derive_priv(&secp, &child_derivation_path)?
             .to_keypair(&secp))
@@ -2068,7 +2029,7 @@ impl Wallet {
     /// Derives the fidelity redeemscript from bond values at given index.
     pub fn get_fidelity_reedemscript(&self, index: u32) -> Result<ScriptBuf, WalletError> {
         let (bond, _, _) = self
-            .store
+            .wallet_store
             .fidelity_bond
             .get(&index)
             .ok_or(FidelityError::BondDoesNotExist)?;
@@ -2084,7 +2045,7 @@ impl Wallet {
         // Check what was the last fidelity address index.
         // Derive a fidelity address
         let next_index = self
-            .store
+            .wallet_store
             .fidelity_bond
             .keys()
             .map(|i| *i + 1)
@@ -2100,7 +2061,7 @@ impl Wallet {
             next_index,
             Address::p2wsh(
                 fidelity_redeemscript(&locktime, &fidelity_pubkey).as_script(),
-                self.store.network,
+                self.wallet_store.network,
             ),
             fidelity_pubkey,
         ))
@@ -2111,7 +2072,7 @@ impl Wallet {
     /// https://gist.github.com/chris-belcher/87ebbcbb639686057a389acb9ab3e25b#financial-mathematics-of-joinmarket-fidelity-bonds
     pub fn calculate_bond_value(&self, index: u32) -> Result<Amount, WalletError> {
         let (bond, _, _) = self
-            .store
+            .wallet_store
             .fidelity_bond
             .get(&index)
             .ok_or(FidelityError::BondDoesNotExist)?;
@@ -2277,7 +2238,7 @@ impl Wallet {
 
         let bond_spk = bond.script_pub_key();
 
-        self.store
+        self.wallet_store
             .fidelity_bond
             .insert(index, (bond, bond_spk, false));
 
@@ -2289,7 +2250,7 @@ impl Wallet {
     /// Upon confirmation it marks the bond as `spent` in the wallet data.
     pub fn redeem_fidelity(&mut self, index: u32) -> Result<Txid, WalletError> {
         let (bond, _, is_spent) = self
-            .store
+            .wallet_store
             .fidelity_bond
             .get(&index)
             .ok_or(FidelityError::BondDoesNotExist)?;
@@ -2366,7 +2327,7 @@ impl Wallet {
         // mark is_spent
         {
             let (_, _, is_spent) = self
-                .store
+                .wallet_store
                 .fidelity_bond
                 .get_mut(&index)
                 .ok_or(FidelityError::BondDoesNotExist)?;
@@ -2385,7 +2346,7 @@ impl Wallet {
     ) -> Result<_FidelityProof, WalletError> {
         // Generate a fidelity bond proof from the fidelity data.
         let (bond, _, is_spent) = self
-            .store
+            .wallet_store
             .fidelity_bond
             .get(&index)
             .ok_or(FidelityError::BondDoesNotExist)?;
@@ -2439,7 +2400,7 @@ impl Wallet {
     pub fn extend_fidelity_expiry(&mut self, index: u32) -> Result<(), WalletError> {
         let cert_expiry = self.get_fidelity_expriy()?;
         let (bond, _, _) = self
-            .store
+            .wallet_store
             .fidelity_bond
             .get_mut(&index)
             .ok_or(FidelityError::BondDoesNotExist)?;
@@ -2485,10 +2446,12 @@ pub struct WalletStore {
     pub(super) prevout_to_contract_map: HashMap<OutPoint, ScriptBuf>,
     /// Map for all the fidelity bond information. (index, (Bond, script_pubkey, is_spent)).
     pub(super) fidelity_bond: HashMap<u32, (FidelityBond, ScriptBuf, bool)>,
-    //TODO: Add last synced height and Wallet birthday.
+    /// The last synced height of the wallet.
     pub(super) last_synced_height: Option<u64>,
-
+    /// The birthday of the wallet.
     pub(super) wallet_birthday: Option<u64>,
+    /// The file path of the wallet store.
+    pub(crate) wallet_file_path: PathBuf,
 }
 
 impl WalletStore {
@@ -2517,6 +2480,7 @@ impl WalletStore {
             fidelity_bond: HashMap::new(),
             last_synced_height: None,
             wallet_birthday,
+            wallet_file_path: path.clone(),
         };
 
         std::fs::create_dir_all(path.parent().expect("Path should NOT be root!"))?;
@@ -2544,8 +2508,23 @@ impl WalletStore {
     pub fn read_from_disk(path: &PathBuf) -> Result<Self, WalletError> {
         let wallet_file = OpenOptions::new().read(true).open(path)?;
         let reader = BufReader::new(wallet_file);
-        let store: Self = serde_cbor::from_reader(reader)?;
+        let mut store: Self = serde_cbor::from_reader(reader)?;
+        store.wallet_file_path = path.clone();
         Ok(store)
+    }
+    /// Deletes the wallet file and returns the result as `Ok(())` on success.
+    pub fn delete_wallet_file(&self) -> Result<(), WalletError> {
+        Ok(fs::remove_file(&self.wallet_file_path)?)
+    }
+
+    /// Returns a reference to the file path of the wallet.
+    pub fn get_file_path(&self) -> &PathBuf {
+        &self.wallet_file_path
+    }
+
+    /// Update the existing file. Error if path does not exist.
+    pub fn save_to_disk(&self) -> Result<(), WalletError> {
+        self.write_to_disk(&self.wallet_file_path)
     }
 }
 
@@ -3226,7 +3205,7 @@ impl Wallet {
     /// Sync the wallet with the configured Bitcoin Core RPC. Save data to disk.
     pub fn sync(&mut self) -> Result<(), WalletError> {
         // Create or load the watch-only bitcoin core wallet
-        let wallet_name = &self.store.file_name;
+        let wallet_name = &self.wallet_store.file_name;
         if self.rpc.list_wallets()?.contains(wallet_name) {
             log::info!("wallet already loaded: {}", wallet_name);
         } else if list_wallet_dir(&self.rpc)?.contains(wallet_name) {
@@ -3270,10 +3249,10 @@ impl Wallet {
         // Just retry after 3 sec.
         loop {
             let last_synced_height = self
-                .store
+                .wallet_store
                 .last_synced_height
                 .unwrap_or(0)
-                .max(self.store.wallet_birthday.unwrap_or(0));
+                .max(self.wallet_store.wallet_birthday.unwrap_or(0));
             let node_synced = self.rpc.get_block_count()?;
             log::info!(
                 "rescan_blockchain from:{} to:{}",
@@ -3285,7 +3264,7 @@ impl Wallet {
                 Some(node_synced as usize),
             ) {
                 Ok(_) => {
-                    self.store.last_synced_height = Some(node_synced);
+                    self.wallet_store.last_synced_height = Some(node_synced);
                     break;
                 }
 
@@ -3493,9 +3472,11 @@ impl Wallet {
                 //so a.network is always testnet even if the address is signet
                 let testnet_signet_type = (a.as_unchecked().is_valid_for_network(Network::Testnet)
                     || a.as_unchecked().is_valid_for_network(Network::Signet))
-                    && (self.store.network == Network::Testnet
-                        || self.store.network == Network::Signet);
-                if !a.as_unchecked().is_valid_for_network(self.store.network)
+                    && (self.wallet_store.network == Network::Testnet
+                        || self.wallet_store.network == Network::Signet);
+                if !a
+                    .as_unchecked()
+                    .is_valid_for_network(self.wallet_store.network)
                     && !testnet_signet_type
                 {
                     return Err(WalletError::Protocol(
