@@ -1,7 +1,7 @@
 //! Keychain Enum & related API
 
 /// Derivation Path from master to Account no i.e 0' by default.
-pub const HARDENDED_DERIVATION: &str = "m/84'/1'/0'";
+pub const HARDENED_DERIVATION: &str = "m/84'/1'/0'";
 
 /// Types of keychains
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Clone, Copy)]
@@ -40,6 +40,6 @@ impl Keychain {
             Keychain::Contract { count } => format!("4/{}", count),
         };
 
-        format!("{}/{}", HARDENDED_DERIVATION, keychain_type)
+        format!("{}/{}", HARDENED_DERIVATION, keychain_type)
     }
 }
