@@ -21,7 +21,6 @@ use std::{
 use bitcoin::{absolute::LockTime, Amount};
 use bitcoind::bitcoincore_rpc::RpcApi;
 
-use serde::{Deserialize, Serialize};
 use tokio::{
     io::{AsyncReadExt, BufReader},
     net::{tcp::ReadHalf, TcpListener, TcpStream},
@@ -36,11 +35,11 @@ use std::io::Read;
 use tokio::io::AsyncWriteExt;
 use tokio_socks::tcp::Socks5Stream;
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
-struct OnionAddress {
-    port: String,
-    onion_addr: String,
-}
+// #[derive(Clone, Debug, Serialize, Deserialize)]
+// struct OnionAddress {
+//     port: String,
+//     onion_addr: String,
+// }
 
 use crate::{
     maker::{
