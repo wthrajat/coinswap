@@ -10,7 +10,7 @@ mod storage;
 mod swapcoin;
 
 #[allow(dead_code)]
-mod bdk;
+mod bdk_wallet;
 
 pub use api::{DisplayAddressType, UTXOSpendInfo, Wallet, HARDENDED_DERIVATION};
 pub use direct_send::{CoinToSpend, Destination, SendAmount};
