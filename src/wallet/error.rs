@@ -24,7 +24,7 @@ pub enum WalletError {
     /// Errors that can occur when working with the secp256k1 elliptic curve.
     Secp(bitcoin::secp256k1::Error),
     /// Errors that can occur when working with BDK.
-    BDKErrors(crate::wallet::bdk_wallet::error::BDKErrors),
+    BDKErrors(crate::wallet::bdk_wallet::error::BdkError),
 }
 
 /// Implementations for Wallet Errors.
@@ -82,8 +82,8 @@ impl From<bitcoin::secp256k1::Error> for WalletError {
     }
 }
 
-impl From<crate::wallet::bdk_wallet::error::BDKErrors> for WalletError {
-    fn from(value: crate::wallet::bdk_wallet::error::BDKErrors) -> Self {
+impl From<crate::wallet::bdk_wallet::error::BdkError> for WalletError {
+    fn from(value: crate::wallet::bdk_wallet::error::BdkError) -> Self {
         Self::BDKErrors(value)
     }
 }

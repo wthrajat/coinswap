@@ -2,7 +2,7 @@
 
 /// Enum for handling BDK-related errors.
 #[derive(Debug)]
-pub enum BDKErrors {
+pub enum BdkError {
     /// Errors related to the parsing and usage of passed-in descriptor(s).
     Descriptor(bdk_wallet::descriptor::error::Error),
     /// Errors that can happen while extracting and manipulating policies.
@@ -18,37 +18,37 @@ pub enum BDKErrors {
 }
 
 /// Implementations for BDK Errors.
-impl From<bdk_wallet::descriptor::DescriptorError> for BDKErrors {
+impl From<bdk_wallet::descriptor::DescriptorError> for BdkError {
     fn from(value: bdk_wallet::descriptor::DescriptorError) -> Self {
         Self::Descriptor(value)
     }
 }
 
-impl From<bdk_wallet::descriptor::policy::PolicyError> for BDKErrors {
+impl From<bdk_wallet::descriptor::policy::PolicyError> for BdkError {
     fn from(value: bdk_wallet::descriptor::policy::PolicyError) -> Self {
         Self::Policy(value)
     }
 }
 
-impl From<bdk_wallet::wallet::NewError> for BDKErrors {
+impl From<bdk_wallet::wallet::NewError> for BdkError {
     fn from(value: bdk_wallet::wallet::NewError) -> Self {
         Self::New(value)
     }
 }
 
-impl From<bdk_wallet::wallet::LoadError> for BDKErrors {
+impl From<bdk_wallet::wallet::LoadError> for BdkError {
     fn from(value: bdk_wallet::wallet::LoadError) -> Self {
         Self::Load(value)
     }
 }
 
-impl From<bdk_wallet::wallet::NewOrLoadError> for BDKErrors {
+impl From<bdk_wallet::wallet::NewOrLoadError> for BdkError {
     fn from(value: bdk_wallet::wallet::NewOrLoadError) -> Self {
         Self::NewLoad(value)
     }
 }
 
-impl From<bdk_wallet::wallet::ApplyBlockError> for BDKErrors {
+impl From<bdk_wallet::wallet::ApplyBlockError> for BdkError {
     fn from(value: bdk_wallet::wallet::ApplyBlockError) -> Self {
         Self::ApplyBlock(value)
     }
