@@ -262,10 +262,10 @@ impl Wallet {
             });
 
             // Form the keymap from the secret key and its public key
-            let keymap= BTreeMap::from([(
+            let keymap = BTreeMap::from([(
                 secret_key
                     .to_public(&wallet.secp)
-                    .map_err( BdkError::DescriptorKeyParseError)?,
+                    .map_err(BdkError::DescriptorKeyParseError)?,
                 secret_key,
             )]);
 
@@ -283,9 +283,7 @@ impl Wallet {
         Ok(wallet)
     }
 
-   
-
- /// Retrieves the descriptor associated with a given keychain.
+    /// Retrieves the descriptor associated with a given keychain.
     pub fn get_keychain_descriptor(
         &self,
         keychain: Keychain,
@@ -336,5 +334,185 @@ impl Wallet {
 
         Ok(())
     }
+}
 
+#[cfg(test)]
+mod tests {
+
+    use bdk_chain::{bitcoin::hashes::Hash, local_chain::ChangeSet as LocalChangeSet};
+    use bitcoind::{
+        bitcoincore_rpc::{Auth, RpcApi},
+        BitcoinD, Conf,
+    };
+
+    use crate::utill::get_wallet_dir;
+
+    use super::*;
+    use bdk_chain::bitcoin::BlockHash;
+    use bip39::Mnemonic;
+    use bitcoind::tempfile::tempdir;
+
+    /// Initializes and returns a BitcoinD instance and a test wallet.
+    fn init_bitcoind_and_wallet() -> (BitcoinD, Wallet) {
+        // Setup directory
+        let temp_dir = tempdir().unwrap().into_path();
+
+        // Initiate the bitcoind backend.
+        let mut conf = Conf::default();
+
+        conf.args.push("-txindex=1"); //txindex is must, or else wallet sync won't work.
+        conf.staticdir = Some(temp_dir.join(".bitcoin"));
+
+        let key = "BITCOIND_EXE";
+        let curr_dir_path = std::env::current_dir().unwrap();
+        let bitcoind_path = curr_dir_path.join("bin").join("bitcoind");
+        std::env::set_var(key, bitcoind_path);
+        let exe_path = bitcoind::exe_path().unwrap();
+
+        let bitcoind = BitcoinD::with_conf(exe_path, &conf).unwrap();
+
+        // make rpc_config from bitcoind
+        let url = bitcoind.rpc_url().split_at(7).1.to_string();
+        let auth = Auth::CookieFile(bitcoind.params.cookie_file.clone());
+        let network = bitcoind.client.get_blockchain_info().unwrap().chain;
+        let rpc_config = RPCConfig {
+            url,
+            auth,
+            network,
+            wallet_name: "test_wallet".to_string(),
+        };
+
+        // Initialize wallet
+        let data_dir = get_wallet_dir();
+        let mnemonic = Mnemonic::generate(12).unwrap().to_string();
+
+        let wallet = Wallet::init(
+            data_dir,
+            mnemonic,
+            "passhrase".to_string(),
+            &rpc_config,
+            Network::Regtest,
+        )
+        .expect("failed to initialise wallet");
+
+        (bitcoind, wallet)
+    }
+
+    #[test]
+    fn test_init_wallet() {
+        let (_, wallet) = init_bitcoind_and_wallet();
+
+        // Define the expected paths
+        let expected_meta_store_path = PathBuf::from(&wallet.data_dir).join("meta_store.cbor");
+        let expected_tx_store_path = PathBuf::from(&wallet.data_dir).join("bdk_store.dat");
+
+        // Check if the files exist at the expected locations
+        assert!(
+            expected_meta_store_path.exists(),
+            "meta_store file does not exist"
+        );
+        assert!(
+            expected_tx_store_path.exists(),
+            "bdk_store file does not exist"
+        );
+
+        // Assert that wallet should not contain any changeset in stage field
+        assert_eq!(wallet.stage, ChangeSet::default());
+
+        // Number of pairs in signers hashmap must be 2 (Internal & External)
+        assert_eq!(wallet.signers.len(), 2);
+
+        for (keychain, signer_container) in wallet.signers {
+            let keymap = signer_container.as_key_map(&wallet.secp);
+
+            // Keymap size must be 1
+            assert_eq!(keymap.len(), 1);
+
+            let xpub = keymap.first_key_value().expect("must not fail").0;
+
+            // xpub's full derivation path must be as expected
+            let path = keychain.path();
+            let expected_path = path.strip_prefix("m/").expect("must not fail");
+
+            assert_eq!(
+                expected_path,
+                xpub.full_derivation_path().expect("").to_string()
+            );
+
+            // Fingerprint calculated from xpub must match with its master
+            let master_fingerprint = wallet
+                .meta_store
+                .master_key
+                .fingerprint(&wallet.secp)
+                .to_string();
+            assert_eq!(xpub.master_fingerprint().to_string(), master_fingerprint);
+        }
+
+        // KeychainTxoutIndex must contain two keychains
+        assert_eq!(wallet.indexed_graph.index.keychains().len(), 2);
+    }
+
+    #[test]
+    fn test_load_wallet() {
+        let (bitcoind, initiated_wallet) = init_bitcoind_and_wallet();
+
+        // Make rpc_config from bitcoind
+        let url = bitcoind.rpc_url().split_at(7).1.to_string();
+        let auth = Auth::CookieFile(bitcoind.params.cookie_file.clone());
+        let network = bitcoind.client.get_blockchain_info().unwrap().chain;
+        let rpc_config = RPCConfig {
+            url,
+            auth,
+            network,
+            wallet_name: "test_wallet".to_string(),
+        };
+
+        // Get data_dir from initiated wallet
+        let data_dir = initiated_wallet.data_dir.clone();
+
+        // Load the wallet
+        let mut loaded_wallet =
+            Wallet::load(data_dir.clone(), &rpc_config).expect("failed to load wallet");
+
+        // Check that the wallet contains signers for `External` and `Internal` keychains
+        let signers = loaded_wallet.signers;
+        assert_eq!(signers.len(), 2);
+        assert!(signers.contains_key(&Keychain::External));
+        assert!(signers.contains_key(&Keychain::Internal));
+
+        // Create a local chain changeset, apply it to the wallet's local chain,
+        // reload the wallet, and verify that it contains the updates
+        let chain_changeset = LocalChangeSet::from([(1, Some(BlockHash::all_zeros()))]);
+
+        loaded_wallet
+            .chain
+            .apply_changeset(&chain_changeset)
+            .expect("failed to apply changesets to local chain");
+
+        let wallet_changeset = ChangeSet::from(chain_changeset);
+
+        let master_fingerprint = loaded_wallet.meta_store.file_name.as_bytes();
+
+        // Open BDK store
+        let mut bdk_store: BDKStore<ChangeSet> =
+            BDKStore::open(master_fingerprint, data_dir.join("bdk_store.dat"))
+                .expect("must not fail");
+
+        // Set the file pointer of BDK store file to end position
+        let _ = bdk_store
+            .aggregate_changesets()
+            .expect("failed to set file pointer to end");
+
+        // Save the changeset to BDK store
+        bdk_store
+            .append_changeset(&wallet_changeset)
+            .expect("failed to append changeset");
+
+        // TODO: Reload wallet after doing some wallet operation
+        // Reload the wallet from the file system and check if the updates are present
+        let reloaded_wallet = Wallet::load(data_dir, &rpc_config).expect("failed to load wallet");
+
+        let expected_chain = loaded_wallet.chain;
+        assert_eq!(reloaded_wallet.chain, expected_chain);
+    }
 }
