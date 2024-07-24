@@ -284,4 +284,57 @@ impl Wallet {
     }
 
    
+
+ /// Retrieves the descriptor associated with a given keychain.
+    pub fn get_keychain_descriptor(
+        &self,
+        keychain: Keychain,
+    ) -> Option<&Descriptor<DescriptorPublicKey>> {
+        self.indexed_graph.index.get_descriptor(&keychain)
+    }
+
+    /// Generates a new address for the specified keychain.
+    pub fn get_new_address(&mut self, keychain: &Keychain) -> Result<Address, WalletError> {
+        let index = &mut self.indexed_graph.index;
+
+        // Gets the next unused script pubkey in the keychain and its associated changeset.
+        let ((_, spk), index_changeset) = index
+            .next_unused_spk(keychain)
+            .ok_or(BdkError::KeychainDoesNotExist)?;
+
+        // derive combined changeset from returned ['KeychainTxOutIndex`] changeset.
+        let changeset = ChangeSet::from(index_changeset);
+
+        // generate address from  derived scriptpubkey
+        let address = Address::from_script(spk.as_script(), self.network)
+            .map_err(BdkError::AddressGenerationError)?;
+
+        // Save wallet state
+        self.save(Some(changeset))?;
+        Ok(address)
+    }
+
+    /// save the changes made to wallet state on disk
+    pub fn save(&self, changeset: Option<ChangeSet>) -> Result<(), WalletError> {
+        // get meta_store path from given data_dir
+        let meta_store_path = self.data_dir.join("meta_store.cbor");
+
+        self.meta_store.write_to_disk(&meta_store_path)?;
+
+        if let Some(changeset) = changeset {
+            // get bdk_store path from given data_dir
+            let bdk_store_path = self.data_dir.join("bdk_store.dat");
+
+            // open bdk_store
+            let mut bdk_store =
+                BDKStore::open_or_create_new(self.meta_store.file_name.as_bytes(), bdk_store_path)
+                    .map_err(|e| BdkError::BdkStoreError(BdkStoreError::FileError(e)))?;
+
+            // append the given changesets
+            bdk_store.append_changeset(&changeset)?;
+        }
+
+        Ok(())
+    }
+
 }
