@@ -1,10 +1,12 @@
 //! Keychain Enum & related API
 
+use serde::{Deserialize, Serialize};
+
 /// Derivation Path from master to Account no i.e 0' by default.
 pub const HARDENED_DERIVATION: &str = "m/84'/1'/0'";
 
 /// Types of keychains
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Clone, Copy)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Clone, Copy, Serialize, Deserialize)]
 pub enum Keychain {
     /// External: Derives recipient addresses.
     External,
@@ -31,8 +33,8 @@ impl Keychain {
     }
 
     // returns path of given keychain.
-    fn path(keychain: Keychain) -> String {
-        let keychain_type = match keychain {
+    pub fn path(&self) -> String {
+        let keychain_type = match self {
             Keychain::External => String::from("0"),
             Keychain::Internal => String::from("1"),
             Keychain::Fidelity { count } => format!("2/{}", count),
