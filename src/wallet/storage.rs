@@ -2,7 +2,10 @@
 //!
 //! Wallet data is currently written in unencrypted CBOR files which are not directly human readable.
 
-use std::{collections::HashMap, path::PathBuf};
+use std::{
+    collections::HashMap,
+    path::{Path, PathBuf},
+};
 
 use bitcoin::{bip32::Xpriv, Network, OutPoint, ScriptBuf};
 use serde::{Deserialize, Serialize};
@@ -19,7 +22,7 @@ use super::swapcoin::{IncomingSwapCoin, OutgoingSwapCoin};
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 pub struct WalletStore {
     /// The file name associated with the wallet store.
-    pub(crate) file_name: String,
+    pub(crate) unique_id: String,
     /// Network the wallet operates on.
     pub(crate) network: Network,
     /// The master key for the wallet.
@@ -45,14 +48,14 @@ pub struct WalletStore {
 impl WalletStore {
     /// Initialize a store at a path (if path already exists, it will overwrite it).
     pub fn init(
-        file_name: String,
-        path: &PathBuf,
+        unique_id: String,
+        data_directory: &Path,
         network: Network,
         master_key: Xpriv,
         wallet_birthday: Option<u64>,
     ) -> Result<Self, WalletError> {
         let store = Self {
-            file_name,
+            unique_id: unique_id.clone(),
             network,
             master_key,
             external_index: 0,
@@ -64,15 +67,17 @@ impl WalletStore {
             last_synced_height: None,
             wallet_birthday,
         };
+        let data_directory = data_directory.join(format!("{}.cbor", unique_id));
 
-        std::fs::create_dir_all(path.parent().expect("Path should NOT be root!"))?;
+        std::fs::create_dir_all(data_directory.clone())?;
+
         // write: overwrites existing file.
         // create: creates new file if doesn't exist.
         let file = OpenOptions::new()
             .write(true)
             .create(true)
             .truncate(true)
-            .open(path)?;
+            .open(data_directory.clone())?;
         let writer = BufWriter::new(file);
         serde_cbor::to_writer(writer, &store)?;
 
