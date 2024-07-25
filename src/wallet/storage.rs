@@ -77,7 +77,7 @@ impl WalletStore {
             .write(true)
             .create(true)
             .truncate(true)
-            .open(&wallet_file_path)?;
+            .open(wallet_file_path)?;
         let writer = BufWriter::new(file);
         serde_cbor::to_writer(writer, &store)?;
 
@@ -123,7 +123,9 @@ mod tests {
         .unwrap();
 
         let wallet_file_path = data_directory.join(format!("{}.cbor", unique_id));
-        original_wallet_store.write_to_disk(&wallet_file_path).unwrap();
+        original_wallet_store
+            .write_to_disk(&wallet_file_path)
+            .unwrap();
 
         let read_wallet = WalletStore::read_from_disk(&wallet_file_path).unwrap();
         assert_eq!(original_wallet_store, read_wallet);
