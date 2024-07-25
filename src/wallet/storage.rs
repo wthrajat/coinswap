@@ -67,9 +67,9 @@ impl WalletStore {
             last_synced_height: None,
             wallet_birthday,
         };
-        let data_directory = data_directory.join(format!("{}.cbor", unique_id));
+        let wallet_file_path = data_directory.join(format!("{}.cbor", unique_id));
 
-        std::fs::create_dir_all(data_directory.clone())?;
+        std::fs::create_dir_all(data_directory)?;
 
         // write: overwrites existing file.
         // create: creates new file if doesn't exist.
@@ -77,7 +77,7 @@ impl WalletStore {
             .write(true)
             .create(true)
             .truncate(true)
-            .open(data_directory.clone())?;
+            .open(&wallet_file_path)?;
         let writer = BufWriter::new(file);
         serde_cbor::to_writer(writer, &store)?;
 
@@ -108,21 +108,24 @@ mod tests {
     #[test]
     fn test_write_and_read_wallet_to_disk() {
         let temp_dir = tempdir().unwrap();
-        let file_path = temp_dir.path().join("test_wallet.cbor");
+        let data_directory = temp_dir.path().to_path_buf();
+        let unique_id = "test_wallet".to_string();
+
         let mnemonic = Mnemonic::generate(12).unwrap().to_string();
 
         let original_wallet_store = WalletStore::init(
-            "test_wallet".to_string(),
-            &file_path,
+            unique_id.clone(),
+            &data_directory,
             Network::Bitcoin,
             Xpriv::new_master(Network::Bitcoin, mnemonic.as_bytes()).unwrap(),
             None,
         )
         .unwrap();
 
-        original_wallet_store.write_to_disk(&file_path).unwrap();
+        let wallet_file_path = data_directory.join(format!("{}.cbor", unique_id));
+        original_wallet_store.write_to_disk(&wallet_file_path).unwrap();
 
-        let read_wallet = WalletStore::read_from_disk(&file_path).unwrap();
+        let read_wallet = WalletStore::read_from_disk(&wallet_file_path).unwrap();
         assert_eq!(original_wallet_store, read_wallet);
     }
 }
