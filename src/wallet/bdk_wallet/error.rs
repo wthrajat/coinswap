@@ -24,9 +24,12 @@ pub enum BdkError {
     /// Error related to BDKStore
     BdkStoreError(BdkStoreError),
 
+    /// Error indicating that the specified keychain does not exist.
     KeychainDoesNotExist,
     // Error while generating a new address
     AddressGenerationError(bdk_wallet::bitcoin::address::FromScriptError),
+
+    // Error while parsing key in descriptor
     DescriptorKeyParseError(miniscript::descriptor::DescriptorKeyParseError),
 }
 
