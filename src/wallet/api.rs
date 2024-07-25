@@ -3,15 +3,18 @@
 //! Currently, wallet synchronization is exclusively performed through RPC for makers.
 //! In the future, takers might adopt alternative synchronization methods, such as lightweight wallet solutions.
 
-use std::{convert::TryFrom, fs, path::PathBuf, str::FromStr};
-
-use std::collections::{HashMap, HashSet};
+use std::{
+    collections::{HashMap, HashSet},
+    convert::TryFrom,
+    fs,
+    path::PathBuf,
+    str::FromStr,
+};
 
 use bitcoin::{
-    bip32::{ChildNumber, DerivationPath, Xpriv, Xpub},
+    bip32::{ChildNumber, DerivationPath, Fingerprint, Xpriv, Xpub},
     hashes::{hash160::Hash as Hash160, hex::FromHex},
-    secp256k1,
-    secp256k1::{Secp256k1, SecretKey},
+    secp256k1::{self, Secp256k1, SecretKey},
     sighash::{EcdsaSighashType, SighashCache},
     Address, Amount, OutPoint, PublicKey, Script, ScriptBuf, Transaction, Txid,
 };
@@ -42,7 +45,7 @@ const HARDENDED_DERIVATION: &str = "m/84'/1'/0'";
 /// Represents a Bitcoin wallet with associated functionality and data.
 pub struct Wallet {
     pub(crate) rpc: Client,
-    wallet_file_path: PathBuf,
+    data_directory: PathBuf,
     pub(crate) store: WalletStore,
 }
 
@@ -145,8 +148,8 @@ type SwapCoinsInfo<'a> = (
 impl Wallet {
     /// Initialize the wallet at a given path.
     pub fn init(
-        path: &PathBuf,
-        rpc_config: &RPCConfig,
+        data_directory: &std::path::Path,
+        rpc_config: &mut RPCConfig,
         seedphrase: String,
         passphrase: String,
     ) -> Result<Self, WalletError> {
@@ -155,25 +158,25 @@ impl Wallet {
         let seed = mnemonic.to_seed(passphrase.clone());
         let master_key = Xpriv::new_master(rpc_config.network, &seed)?;
 
-        // Initialise wallet
-        let file_name = path
-            .file_name()
-            .expect("file name expected")
-            .to_str()
-            .expect("expected")
-            .to_string();
-        let rpc = Client::try_from(rpc_config)?;
+        let wallet_id = Fingerprint::default();
+
+        // Update rpc_config's wallet_id
+        rpc_config.wallet_id = wallet_id.to_string();
+
+        // Initialize RPC client with updated RPCConfig
+        let rpc = Client::try_from(&*rpc_config)?;
+
         let wallet_birthday = rpc.get_block_count()?;
         let store = WalletStore::init(
-            file_name,
-            path,
+            wallet_id,
+            data_directory,
             rpc_config.network,
             master_key,
             Some(wallet_birthday),
         )?;
         Ok(Self {
             rpc,
-            wallet_file_path: path.clone(),
+            data_directory: data_directory.to_path_buf(),
             store,
         })
     }
@@ -182,36 +185,37 @@ impl Wallet {
     /// The core rpc wallet name, and wallet_id field in the file should match.
     pub fn load(rpc_config: &RPCConfig, path: &PathBuf) -> Result<Wallet, WalletError> {
         let store = WalletStore::read_from_disk(path)?;
-        if rpc_config.wallet_name != store.file_name {
+        if rpc_config.wallet_id != store.wallet_id.to_string() {
             return Err(WalletError::Protocol(format!(
-                "Wallet name of database file and core missmatch, expected {}, found {}",
-                rpc_config.wallet_name, store.file_name
+                "Wallet name of database file and core missmatch, expected {}, found {}", // TODO: write correct Error
+                rpc_config.wallet_id, store.wallet_id
             )));
         }
         let rpc = Client::try_from(rpc_config)?;
         log::info!(
             "Loaded wallet file {} | External Index = {} | Incoming Swapcoins = {} | Outgoing Swapcoins = {}",
-            store.file_name,
+            store.wallet_id,
             store.external_index,
             store.incoming_swapcoins.len(),
             store.outgoing_swapcoins.len()
         );
         let wallet = Self {
             rpc,
-            wallet_file_path: path.clone(),
+            data_directory: path.clone(),
             store,
         };
         Ok(wallet)
     }
 
+    /// Start from here.
     /// Deletes the wallet file and returns the result as `Ok(())` on success.
     pub fn delete_wallet_file(&self) -> Result<(), WalletError> {
-        Ok(fs::remove_file(&self.wallet_file_path)?)
+        Ok(fs::remove_file(self.get_file_path())?)
     }
 
-    /// Returns a reference to the file path of the wallet.
-    pub fn get_file_path(&self) -> &PathBuf {
-        &self.wallet_file_path
+    /// Returns the file path of the wallet.
+    pub fn get_file_path(&self) -> PathBuf {
+        self.data_directory.join(self.store.wallet_id.to_string())
     }
 
     /// Update external index and saves to disk.
@@ -226,7 +230,7 @@ impl Wallet {
 
     /// Update the existing file. Error if path does not exist.
     pub fn save_to_disk(&self) -> Result<(), WalletError> {
-        self.store.write_to_disk(&self.wallet_file_path)
+        self.store.write_to_disk(&self.get_file_path())
     }
 
     /// Finds an incoming swap coin with the specified multisig redeem script.

@@ -17,6 +17,7 @@ use std::{
 use bip39::Mnemonic;
 use bitcoin::{
     absolute::LockTime,
+    bip32::Fingerprint,
     ecdsa::Signature,
     secp256k1::{self, Secp256k1},
     Amount, OutPoint, PublicKey, ScriptBuf, Transaction,
@@ -153,7 +154,7 @@ impl Maker {
         // Load/Create wallet depending on if a wallet with wallet_file_name exists.
         let mut wallet = if let Some(file_name) = wallet_file_name {
             let wallet_path = wallet_dir.join(&file_name);
-            rpc_config.wallet_name = file_name;
+            rpc_config.wallet_id = file_name;
             if wallet_path.exists() {
                 // Try loading wallet
                 let wallet = Wallet::load(&rpc_config, &wallet_path)?;
@@ -164,7 +165,8 @@ impl Maker {
                 let mnemonic = Mnemonic::generate(12).map_err(WalletError::BIP39)?;
                 let seedphrase = mnemonic.to_string();
 
-                let wallet = Wallet::init(&wallet_path, &rpc_config, seedphrase, "".to_string())?;
+                let wallet =
+                    Wallet::init(&wallet_path, &mut rpc_config, seedphrase, "".to_string())?;
                 log::info!("New Wallet created at : {:?}", wallet_path);
                 wallet
             }
@@ -174,12 +176,12 @@ impl Maker {
             let seedphrase = mnemonic.to_string();
 
             // File names are unique for default wallets
-            let unique_id = seed_phrase_to_unique_id(&seedphrase);
-            let file_name = unique_id + "-maker";
+            let _unique_id = seed_phrase_to_unique_id(&seedphrase);
+            let file_name = Fingerprint::default().to_string();
             let wallet_path = wallet_dir.join(&file_name);
-            rpc_config.wallet_name = file_name;
+            rpc_config.wallet_id = file_name;
 
-            let wallet = Wallet::init(&wallet_path, &rpc_config, seedphrase, "".to_string())?;
+            let wallet = Wallet::init(&wallet_path, &mut rpc_config, seedphrase, "".to_string())?;
             log::info!("New Wallet created at : {:?}", wallet_path);
             wallet
         };

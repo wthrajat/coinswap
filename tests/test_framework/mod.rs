@@ -123,7 +123,7 @@ impl TestFramework {
             shutdown,
         });
 
-        log::info!("Initiating Directory Server .....");
+        log::info!("Initiating Directory Server ...");
 
         let directory_server_instance =
             Arc::new(DirectoryServer::new(None, Some(connection_type)).unwrap());
@@ -141,12 +141,12 @@ impl TestFramework {
         let taker = Arc::new(RwLock::new(
             Taker::init(
                 Some(temp_dir.clone().join("taker")),
-                None,
+                Some(bitcoin::bip32::Fingerprint::default().to_string()),
                 Some(taker_rpc_config),
                 taker_behavior.unwrap_or_default(),
                 Some(connection_type),
             )
-            .unwrap(),
+            .expect("--------- line 149 mod.rs"),
         ));
         let mut base_rpc_port = 3500; // Random port for RPC connection in tests. (Not used)
                                       // Create the Makers as per given configuration map.
@@ -154,7 +154,7 @@ impl TestFramework {
             .iter()
             .map(|(port, behavior)| {
                 base_rpc_port += 1;
-                let maker_id = "maker".to_string() + &port.0.to_string(); // ex: "maker6102"
+                let maker_id = bitcoin::bip32::Fingerprint::default().to_string(); // ex: "maker6102"
                 let maker_rpc_config = rpc_config.clone();
                 thread::sleep(Duration::from_secs(5)); // Sleep for some time avoid resource unavailable error.
                 Arc::new(

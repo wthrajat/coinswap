@@ -101,7 +101,7 @@ fn main() {
         url: args.rpc,
         auth: Auth::UserPass(args.auth.0, args.auth.1),
         network: rpc_network,
-        wallet_name: args.wallet_name.clone(),
+        wallet_id: args.wallet_name.clone(),
     };
 
     let swap_params = SwapParams {

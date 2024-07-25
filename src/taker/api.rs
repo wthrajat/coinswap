@@ -22,6 +22,7 @@ use bitcoind::bitcoincore_rpc::RpcApi;
 use tokio::{net::TcpStream, select, time::sleep};
 
 use bitcoin::{
+    bip32::Fingerprint,
     consensus::encode::deserialize,
     hashes::{hash160::Hash as Hash160, Hash},
     secp256k1::{
@@ -182,7 +183,7 @@ impl Taker {
         // Load/Create wallet depending on if a wallet with wallet_file_name exists.
         let mut wallet = if let Some(file_name) = wallet_file_name {
             let wallet_path = wallets_dir.join(&file_name);
-            rpc_config.wallet_name = file_name;
+            rpc_config.wallet_id = file_name;
             if wallet_path.exists() {
                 // Try loading wallet
                 let wallet = Wallet::load(&rpc_config, &wallet_path)?;
@@ -193,8 +194,9 @@ impl Taker {
                 let mnemonic = Mnemonic::generate(12).unwrap();
                 let seedphrase = mnemonic.to_string();
 
-                let wallet = Wallet::init(&wallet_path, &rpc_config, seedphrase, "".to_string())?;
-                log::info!("New Wallet created at : {:?}", wallet_path);
+                let wallet =
+                    Wallet::init(&wallet_path, &mut rpc_config, seedphrase, "".to_string())?;
+                log::info!("hahahaha arey New Wallet created at : {:?}", wallet_path);
                 wallet
             }
         } else {
@@ -203,12 +205,12 @@ impl Taker {
             let seedphrase = mnemonic.to_string();
 
             // File names are unique for default wallets
-            let unique_id = seed_phrase_to_unique_id(&seedphrase);
-            let file_name = unique_id + "-taker";
+            let _unique_id = seed_phrase_to_unique_id(&seedphrase);
+            let file_name = Fingerprint::default().to_string();
             let wallet_path = wallets_dir.join(&file_name);
-            rpc_config.wallet_name = file_name;
+            rpc_config.wallet_id = file_name;
 
-            let wallet = Wallet::init(&wallet_path, &rpc_config, seedphrase, "".to_string())?;
+            let wallet = Wallet::init(&wallet_path, &mut rpc_config, seedphrase, "".to_string())?;
             log::info!("New Wallet created at : {:?}", wallet_path);
             wallet
         };
@@ -221,6 +223,7 @@ impl Taker {
         }
 
         log::info!("Initializing wallet sync");
+        log::info!(" -------------------- okay init ke neeche");
         wallet.sync()?;
         log::info!("Completed wallet sync");
 
