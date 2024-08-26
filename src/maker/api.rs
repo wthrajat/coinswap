@@ -203,7 +203,7 @@ impl Maker {
             config.connection_type = connection_type;
         }
 
-        // TODO: Write the modified config back to the file.
+        // Writing the new modified config back to the `config.toml` file:
         let config_toml = format!(
             r#"
             port = {}
