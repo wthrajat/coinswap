@@ -153,7 +153,6 @@ pub(crate) async fn req_sigs_for_sender_once<S: SwapCoin>(
     let (mut socket_reader, mut socket_writer) = handshake_maker(&mut socket).await?;
     log::info!("===> Sending ReqContractSigsForSender to {}", maker_address);
 
-    // TODO: Take this construction out of function body.
     let txs_info = construct_sender_txs_info(
         maker_multisig_nonces,
         maker_hashlock_nonces,
@@ -222,7 +221,6 @@ pub(crate) async fn req_sigs_for_recvr_once<S: SwapCoin>(
 
     let (mut socket_reader, mut socket_writer) = handshake_maker(&mut socket).await?;
 
-    // TODO: Take the message construction out of function body.
     let txs_info = construct_recvr_txs_info(incoming_swapcoins, receivers_contract_txes);
 
     send_message(
