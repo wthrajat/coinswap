@@ -92,6 +92,46 @@ pub async fn handshake_maker(
     Ok((socket_reader, socket_writer))
 }
 
+// Function to construct sender transaction information.
+fn construct_sender_txs_info<S: SwapCoin>(
+    maker_multisig_nonces: &[SecretKey],
+    maker_hashlock_nonces: &[SecretKey],
+    outgoing_swapcoins: &[S],
+) -> Vec<ContractTxInfoForSender> {
+    maker_multisig_nonces
+        .iter()
+        .zip(maker_hashlock_nonces.iter())
+        .zip(outgoing_swapcoins.iter())
+        .map(
+            |((&multisig_key_nonce, &hashlock_key_nonce), outgoing_swapcoin)| {
+                ContractTxInfoForSender {
+                    multisig_nonce: multisig_key_nonce,
+                    hashlock_nonce: hashlock_key_nonce,
+                    timelock_pubkey: outgoing_swapcoin.get_timelock_pubkey(),
+                    senders_contract_tx: outgoing_swapcoin.get_contract_tx(),
+                    multisig_redeemscript: outgoing_swapcoin.get_multisig_redeemscript(),
+                    funding_input_value: outgoing_swapcoin.get_funding_amount(),
+                }
+            },
+        )
+        .collect::<Vec<ContractTxInfoForSender>>()
+}
+
+// Function to construct receiver transaction information.
+fn construct_recvr_txs_info<S: SwapCoin>(
+    incoming_swapcoins: &[S],
+    receivers_contract_txes: &[Transaction],
+) -> Vec<ContractTxInfoForRecvr> {
+    incoming_swapcoins
+        .iter()
+        .zip(receivers_contract_txes.iter())
+        .map(|(swapcoin, receivers_contract_tx)| ContractTxInfoForRecvr {
+            multisig_redeemscript: swapcoin.get_multisig_redeemscript(),
+            contract_tx: receivers_contract_tx.clone(),
+        })
+        .collect::<Vec<ContractTxInfoForRecvr>>()
+}
+
 /// Request signatures for sender side of the hop. Attempt once.
 pub(crate) async fn req_sigs_for_sender_once<S: SwapCoin>(
     connection_type: ConnectionType,
@@ -114,23 +154,11 @@ pub(crate) async fn req_sigs_for_sender_once<S: SwapCoin>(
     log::info!("===> Sending ReqContractSigsForSender to {}", maker_address);
 
     // TODO: Take this construction out of function body.
-    let txs_info = maker_multisig_nonces
-        .iter()
-        .zip(maker_hashlock_nonces.iter())
-        .zip(outgoing_swapcoins.iter())
-        .map(
-            |((&multisig_key_nonce, &hashlock_key_nonce), outgoing_swapcoin)| {
-                ContractTxInfoForSender {
-                    multisig_nonce: multisig_key_nonce,
-                    hashlock_nonce: hashlock_key_nonce,
-                    timelock_pubkey: outgoing_swapcoin.get_timelock_pubkey(),
-                    senders_contract_tx: outgoing_swapcoin.get_contract_tx(),
-                    multisig_redeemscript: outgoing_swapcoin.get_multisig_redeemscript(),
-                    funding_input_value: outgoing_swapcoin.get_funding_amount(),
-                }
-            },
-        )
-        .collect::<Vec<ContractTxInfoForSender>>();
+    let txs_info = construct_sender_txs_info(
+        maker_multisig_nonces,
+        maker_hashlock_nonces,
+        outgoing_swapcoins,
+    );
 
     send_message(
         &mut socket_writer,
@@ -195,18 +223,11 @@ pub(crate) async fn req_sigs_for_recvr_once<S: SwapCoin>(
     let (mut socket_reader, mut socket_writer) = handshake_maker(&mut socket).await?;
 
     // TODO: Take the message construction out of function body.
+    let txs_info = construct_recvr_txs_info(incoming_swapcoins, receivers_contract_txes);
+
     send_message(
         &mut socket_writer,
-        &TakerToMakerMessage::ReqContractSigsForRecvr(ReqContractSigsForRecvr {
-            txs: incoming_swapcoins
-                .iter()
-                .zip(receivers_contract_txes.iter())
-                .map(|(swapcoin, receivers_contract_tx)| ContractTxInfoForRecvr {
-                    multisig_redeemscript: swapcoin.get_multisig_redeemscript(),
-                    contract_tx: receivers_contract_tx.clone(),
-                })
-                .collect::<Vec<ContractTxInfoForRecvr>>(),
-        }),
+        &TakerToMakerMessage::ReqContractSigsForRecvr(ReqContractSigsForRecvr { txs: txs_info }),
     )
     .await?;
     let contract_sigs_for_recvr = match read_maker_message(&mut socket_reader).await {
