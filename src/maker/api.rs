@@ -204,7 +204,7 @@ impl Maker {
         }
 
         // Writing the new modified config back to the `config.toml` file:
-        let config_toml = format!(
+        let updated_config = format!(
             r#"
             port = {}
             rpc_port = {}
@@ -213,7 +213,7 @@ impl Maker {
             "#,
             config.port, config.rpc_port, config.socks_port, config.connection_type
         );
-        std::fs::write(data_dir.join("config.toml"), config_toml)
+        std::fs::write(data_dir.join("config.toml"), updated_config)
             .expect("Error while writing the configuration to the config.toml!");
 
         log::info!("Initializing wallet sync");
