@@ -134,10 +134,10 @@ pub enum TakerBehavior {
     BroadcastContractAfterFullSetup,
 }
 
-/// The Taker structure that performs bulk of the coinswap protocol.
+/// The Taker structure that performs bulk of the coinswap protocol. Taker connects
+/// to multiple Makers and send protocol messages sequentially to them. The communication
 ///
-/// Taker connects to multiple Makers and send protocol messages sequentially to them.
-/// The communication sequence and corresponding SwapCoin infos are stored in `ongoing_swap_state`.
+/// sequence and corresponding SwapCoin infos are stored in `ongoing_swap_state`.
 pub struct Taker {
     wallet: Wallet,
     pub config: TakerConfig,
