@@ -203,7 +203,7 @@ impl Maker {
             config.connection_type = connection_type;
         }
 
-        // Writing the new modified config back to the `config.toml` file:
+        // Writing the modified configuration back to the Maker's `config.toml` file:
         let updated_config = format!(
             r#"
             port = {}
@@ -214,7 +214,7 @@ impl Maker {
             config.port, config.rpc_port, config.socks_port, config.connection_type
         );
         std::fs::write(data_dir.join("config.toml"), updated_config)
-            .expect("Error while writing the configuration to the config.toml!");
+            .expect("Error while updating the configuration to the config.toml!");
 
         log::info!("Initializing wallet sync");
         wallet.sync()?;
