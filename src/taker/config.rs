@@ -3,9 +3,8 @@
 //!  Represents the configuration options for the Taker module, controlling behaviors
 //! such as refund locktime, connection attempts, sleep delays, and timeouts.
 
-use std::{io, path::PathBuf};
-
 use crate::utill::{get_taker_dir, parse_field, parse_toml, write_default_config, ConnectionType};
+use std::{io, path::PathBuf};
 /// Taker configuration with refund, connection, and sleep settings.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TakerConfig {
@@ -166,8 +165,8 @@ impl TakerConfig {
     }
 
     // Method to manually serialize the Taker Config into a TOML string
-    pub fn to_toml_string(&self) -> String {
-        format!(
+    pub fn update_taker_config(&self, file_path: &std::path::Path) {
+        let updated_string = format!(
             r#"
             refund_locktime = {}
             refund_locktime_step = {}
@@ -202,7 +201,10 @@ impl TakerConfig {
             self.directory_server_clearnet_address,
             self.connection_type,
             self.rpc_port
-        )
+        );
+        std::fs::write(file_path, updated_string).expect(
+            "Error while writing the updated configuration to the Maker's config.toml file!",
+        );
     }
 }
 

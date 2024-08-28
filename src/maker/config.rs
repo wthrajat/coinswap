@@ -195,8 +195,8 @@ impl MakerConfig {
     }
 
     // Method to manually serialize the Maker Config into a TOML string
-    pub fn to_toml_string(&self) -> String {
-        format!(
+    pub fn update_maker_config(&self, file_path: &std::path::Path) {
+        let updated_string = format!(
             r#"
         port = {}
         rpc_port = {}
@@ -235,7 +235,10 @@ impl MakerConfig {
             self.fidelity_value,
             self.fidelity_timelock,
             self.connection_type,
-        )
+        );
+        std::fs::write(file_path, updated_string).expect(
+            "Error while writing the updated configuration to the Maker's config.toml file!",
+        );
     }
 }
 
