@@ -222,15 +222,12 @@ impl Taker {
             config.connection_type = connection_type;
         }
 
-        // Writing the modified configuration back to the Taker's `config.toml` file:
-        let updated_config = format!(
-            r#"
-            connection_type = "{:?}"
-            "#,
-            config.connection_type,
+        let full_config = config.to_toml_string();
+
+        // Now we are writing the full configuration back to the `config.toml` file:
+        std::fs::write(data_dir.join("config.toml"), full_config).expect(
+            "Error while writing the updated configuration to the Taker's config.toml file!",
         );
-        std::fs::write(data_dir.join("config.toml"), updated_config)
-            .expect("Error while updating the configuration to the config.toml!");
 
         log::info!("Initializing wallet sync");
         wallet.sync()?;

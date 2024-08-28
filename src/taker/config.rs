@@ -164,6 +164,46 @@ impl TakerConfig {
             .unwrap_or(default_config.rpc_port),
         })
     }
+
+    // Method to manually serialize the Taker Config into a TOML string
+    pub fn to_toml_string(&self) -> String {
+        format!(
+            r#"
+            refund_locktime = {}
+            refund_locktime_step = {}
+            first_connect_attempts = {}
+            first_connect_sleep_delay_sec = {}
+            first_connect_attempt_timeout_sec = {}
+            reconnect_attempts = {}
+            reconnect_short_sleep_delay = {}
+            reconnect_long_sleep_delay = {}
+            short_long_sleep_delay_transition = {}
+            reconnect_attempt_timeout_sec = {}
+            port = {}
+            socks_port = {}
+            directory_server_onion_address = "{}"
+            directory_server_clearnet_address = "{}"
+            connection_type = "{:?}"
+            rpc_port = {}
+            "#,
+            self.refund_locktime,
+            self.refund_locktime_step,
+            self.first_connect_attempts,
+            self.first_connect_sleep_delay_sec,
+            self.first_connect_attempt_timeout_sec,
+            self.reconnect_attempts,
+            self.reconnect_short_sleep_delay,
+            self.reconnect_long_sleep_delay,
+            self.short_long_sleep_delay_transition,
+            self.reconnect_attempt_timeout_sec,
+            self.port,
+            self.socks_port,
+            self.directory_server_onion_address,
+            self.directory_server_clearnet_address,
+            self.connection_type,
+            self.rpc_port
+        )
+    }
 }
 
 fn write_default_taker_config(config_path: &PathBuf) {
