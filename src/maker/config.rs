@@ -3,8 +3,9 @@
 use std::{io, path::PathBuf};
 
 use bitcoin::Amount;
+use std::io::Write;
 
-use crate::utill::{get_maker_dir, parse_field, parse_toml, write_default_config, ConnectionType};
+use crate::utill::{get_maker_dir, parse_field, parse_toml, ConnectionType};
 
 /// Maker Configuration, controlling various maker behavior.
 #[derive(Debug, Clone, PartialEq)]
@@ -194,51 +195,15 @@ impl MakerConfig {
         })
     }
 
-    // Method to manually serialize the Maker Config into a TOML string
-    pub fn update_maker_config(&self, file_path: &std::path::Path) {
-        let updated_string = format!(
-            r#"
-        port = {}
-        rpc_port = {}
-        heart_beat_interval_secs = {}
-        rpc_ping_interval_secs = {}
-        directory_servers_refresh_interval_secs = {}
-        idle_connection_timeout = {}
-        absolute_fee_sats = {}
-        amount_relative_fee_ppb = {}
-        time_relative_fee_ppb = {}
-        required_confirms = {}
-        min_contract_reaction_time = {}
-        min_size = {}
-        socks_port = {}
-        directory_server_onion_address = "{}"
-        directory_server_clearnet_address = "{}"
-        fidelity_value = {}
-        fidelity_timelock = {}
-        connection_type = "{:?}"
-        "#,
-            self.port,
-            self.rpc_port,
-            self.heart_beat_interval_secs,
-            self.rpc_ping_interval_secs,
-            self.directory_servers_refresh_interval_secs,
-            self.idle_connection_timeout,
-            self.absolute_fee_sats,
-            self.amount_relative_fee_ppb,
-            self.time_relative_fee_ppb,
-            self.required_confirms,
-            self.min_contract_reaction_time,
-            self.min_size,
-            self.socks_port,
-            self.directory_server_onion_address,
-            self.directory_server_clearnet_address,
-            self.fidelity_value,
-            self.fidelity_timelock,
-            self.connection_type,
-        );
-        std::fs::write(file_path, updated_string).expect(
-            "Error while writing the updated configuration to the Maker's config.toml file!",
-        );
+    // Method to write the provided TOML string to a file
+    pub fn write_to_file(self, path: &PathBuf, toml_data: String) -> std::io::Result<()> {
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        let mut file = std::fs::File::create(path)?;
+        file.write_all(toml_data.as_bytes())?;
+        file.flush()?;
+        Ok(())
     }
 }
 
@@ -265,8 +230,8 @@ fn write_default_maker_config(config_path: &PathBuf) {
             connection_type = tor
             ",
     );
-
-    write_default_config(config_path, config_string).unwrap();
+    let config = MakerConfig::new(None).unwrap(); // Create an instance of MakerConfig
+    config.write_to_file(config_path, config_string).unwrap(); // Call the method on the instance
 }
 
 #[cfg(test)]
