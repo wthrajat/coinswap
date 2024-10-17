@@ -230,8 +230,8 @@ fn write_default_maker_config(config_path: &PathBuf) {
             connection_type = tor
             ",
     );
-    let config = MakerConfig::default(); // Create an instance of MakerConfig
-    config.write_to_file(config_path, config_string).unwrap(); // Call the method on the instance
+    let config = MakerConfig::default();
+    config.write_to_file(config_path, config_string).unwrap();
 }
 
 #[cfg(test)]
