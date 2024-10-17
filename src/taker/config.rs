@@ -200,7 +200,7 @@ fn write_default_taker_config(config_path: &PathBuf) {
                         rpc_port = 8081\n
                         ",
     );
-    let config = TakerConfig::new(None).unwrap();
+    let config = TakerConfig::default();
     config.write_to_file(config_path, config_string).unwrap();
 }
 
