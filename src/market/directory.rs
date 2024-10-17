@@ -162,6 +162,7 @@ fn write_default_directory_config(config_path: &PathBuf) -> std::io::Result<()> 
         connection_type: ConnectionType::TOR,
         data_dir: PathBuf::new(),
         shutdown: RwLock::new(false),
+        addresses: Arc::new(RwLock::new(HashSet::new())),
     };
     directory_server.update_directory_config(config_path, config_string)
 }
