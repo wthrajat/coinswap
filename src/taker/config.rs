@@ -169,24 +169,25 @@ impl TakerConfig {
     // Method to manually serialize the Taker Config into a TOML string
     pub fn write_to_file(self, path: &PathBuf) -> std::io::Result<()> {
         let toml_data = format!(
-            "\
-            [taker_config]\n\
-            refund_locktime = {}\n\
-            refund_locktime_step = {}\n\
-            first_connect_attempts = {}\n\
-            first_connect_sleep_delay_sec = {}\n\
-            first_connect_attempt_timeout_sec = {}\n\
-            reconnect_attempts = {}\n\
-            reconnect_short_sleep_delay = {}\n\
-            reconnect_long_sleep_delay = {}\n\
-            short_long_sleep_delay_transition = {}\n\
-            reconnect_attempt_timeout_sec = {}\n\
-            port = {}\n\
-            socks_port = {}\n\
-            directory_server_onion_address = \"{}\"\n\
-            directory_server_clearnet_address = \"{}\"\n\
-            connection_type = \"{:?}\"\n\
-            rpc_port = {}\n",
+            r#"
+            [taker_config]
+            refund_locktime = {}
+            refund_locktime_step = {}
+            first_connect_attempts = {}
+            first_connect_sleep_delay_sec = {}
+            first_connect_attempt_timeout_sec = {}
+            reconnect_attempts = {}
+            reconnect_short_sleep_delay = {}
+            reconnect_long_sleep_delay = {}
+            short_long_sleep_delay_transition = {}
+            reconnect_attempt_timeout_sec = {}
+            port = {}
+            socks_port = {}
+            directory_server_onion_address = {}
+            directory_server_clearnet_address = {}
+            connection_type = "{:?}"
+            rpc_port = {}
+            "#,
             self.refund_locktime,
             self.refund_locktime_step,
             self.first_connect_attempts,
