@@ -195,8 +195,49 @@ impl MakerConfig {
         })
     }
 
-    // Method to write the provided TOML string to a file
-    pub fn write_to_file(self, path: &PathBuf, toml_data: String) -> std::io::Result<()> {
+    // Method to serialize the MakerConfig into a TOML string and write it to a file
+    pub fn write_to_file(&self, path: &PathBuf) -> std::io::Result<()> {
+        let toml_data = format!(
+            r#"
+            port = {}
+            rpc_port = {}
+            heart_beat_interval_secs = {}
+            rpc_ping_interval_secs = {}
+            directory_servers_refresh_interval_secs = {}
+            idle_connection_timeout = {}
+            absolute_fee_sats = {}
+            amount_relative_fee_ppb = {}
+            time_relative_fee_ppb = {}
+            required_confirms = {}
+            min_contract_reaction_time = {}
+            min_size = {}
+            socks_port = {}
+            directory_server_onion_address = "{}"
+            directory_server_clearnet_address = "{}"
+            fidelity_value = {}
+            fidelity_timelock = {}
+            connection_type = "{:?}"
+            "#,
+            self.port,
+            self.rpc_port,
+            self.heart_beat_interval_secs,
+            self.rpc_ping_interval_secs,
+            self.directory_servers_refresh_interval_secs,
+            self.idle_connection_timeout,
+            self.absolute_fee_sats,
+            self.amount_relative_fee_ppb,
+            self.time_relative_fee_ppb,
+            self.required_confirms,
+            self.min_contract_reaction_time,
+            self.min_size,
+            self.socks_port,
+            self.directory_server_onion_address,
+            self.directory_server_clearnet_address,
+            self.fidelity_value,
+            self.fidelity_timelock,
+            self.connection_type,
+        );
+
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
         }
@@ -208,30 +249,8 @@ impl MakerConfig {
 }
 
 fn write_default_maker_config(config_path: &PathBuf) {
-    let config_string = String::from(
-        "\
-            [maker_config]\n\
-            port = 6102\n\
-            rpc_port = 6103\n\
-            heart_beat_interval_secs = 3\n\
-            rpc_ping_interval_secs = 60\n\
-            directory_servers_refresh_interval_secs = 43200\n\
-            idle_connection_timeout = 300\n\
-            onion_addrs = myhiddenserviceaddress.onion\n\
-            absolute_fee_sats = 1000\n\
-            amount_relative_fee_ppb = 10000000\n\
-            time_relative_fee_ppb = 100000\n\
-            required_confirms = 1\n\
-            min_contract_reaction_time = 48\n\
-            min_size = 10000\n\
-            socks_port = 19050\n\
-            directory_server_onion_address = directoryhiddenserviceaddress.onion:8080\n\
-            directory_server_clearnet_address = 127.0.0.1:8080\n\
-            connection_type = tor
-            ",
-    );
     let config = MakerConfig::default();
-    config.write_to_file(config_path, config_string).unwrap();
+    config.write_to_file(config_path).unwrap();
 }
 
 #[cfg(test)]

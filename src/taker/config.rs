@@ -167,7 +167,43 @@ impl TakerConfig {
     }
 
     // Method to manually serialize the Taker Config into a TOML string
-    pub fn write_to_file(self, path: &PathBuf, toml_data: String) -> std::io::Result<()> {
+    pub fn write_to_file(self, path: &PathBuf) -> std::io::Result<()> {
+        let toml_data = format!(
+            "\
+            [taker_config]\n\
+            refund_locktime = {}\n\
+            refund_locktime_step = {}\n\
+            first_connect_attempts = {}\n\
+            first_connect_sleep_delay_sec = {}\n\
+            first_connect_attempt_timeout_sec = {}\n\
+            reconnect_attempts = {}\n\
+            reconnect_short_sleep_delay = {}\n\
+            reconnect_long_sleep_delay = {}\n\
+            short_long_sleep_delay_transition = {}\n\
+            reconnect_attempt_timeout_sec = {}\n\
+            port = {}\n\
+            socks_port = {}\n\
+            directory_server_onion_address = \"{}\"\n\
+            directory_server_clearnet_address = \"{}\"\n\
+            connection_type = \"{:?}\"\n\
+            rpc_port = {}\n",
+            self.refund_locktime,
+            self.refund_locktime_step,
+            self.first_connect_attempts,
+            self.first_connect_sleep_delay_sec,
+            self.first_connect_attempt_timeout_sec,
+            self.reconnect_attempts,
+            self.reconnect_short_sleep_delay,
+            self.reconnect_long_sleep_delay,
+            self.short_long_sleep_delay_transition,
+            self.reconnect_attempt_timeout_sec,
+            self.port,
+            self.socks_port,
+            self.directory_server_onion_address,
+            self.directory_server_clearnet_address,
+            self.connection_type,
+            self.rpc_port
+        );
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
         }
@@ -179,29 +215,8 @@ impl TakerConfig {
 }
 
 fn write_default_taker_config(config_path: &PathBuf) {
-    let config_string = String::from(
-        "\
-                        [taker_config]\n\
-                        refund_locktime = 48\n\
-                        refund_locktime_step = 48\n\
-                        first_connect_attempts = 5\n\
-                        first_connect_sleep_delay_sec = 1\n\
-                        first_connect_attempt_timeout_sec = 60\n\
-                        reconnect_attempts = 3200\n\
-                        reconnect_short_sleep_delay = 10\n\
-                        reconnect_long_sleep_delay = 60\n\
-                        short_long_sleep_delay_transition = 60\n\
-                        reconnect_attempt_timeout_sec = 300\n\
-                        port = 8000\n\
-                        socks_port = 19050\n\
-                        directory_server_onion_address = directoryhiddenserviceaddress.onion:8080\n\
-                        directory_server_clearnet_address = 127.0.0.1:8080\n\
-                        connection_type = tor\n\
-                        rpc_port = 8081\n
-                        ",
-    );
     let config = TakerConfig::default();
-    config.write_to_file(config_path, config_string).unwrap();
+    config.write_to_file(config_path).unwrap();
 }
 
 #[cfg(test)]
