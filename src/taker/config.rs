@@ -72,7 +72,8 @@ impl TakerConfig {
         let config_path = config_path.unwrap_or(&default_config_path);
 
         if !config_path.exists() {
-            write_default_taker_config(config_path);
+            let config = TakerConfig::default();
+            config.write_to_file(config_path).unwrap();
             log::warn!(
                 "Taker config file not found, creating default config file at path: {}",
                 config_path.display()
@@ -87,7 +88,7 @@ impl TakerConfig {
 
         let taker_config_section = section.get("taker_config").cloned().unwrap_or_default();
 
-        Ok(Self {
+        Ok(TakerConfig {
             refund_locktime: parse_field(
                 taker_config_section.get("refund_locktime"),
                 default_config.refund_locktime,
@@ -167,7 +168,7 @@ impl TakerConfig {
     }
 
     // Method to manually serialize the Taker Config into a TOML string
-    pub fn write_to_file(self, path: &PathBuf) -> std::io::Result<()> {
+    pub fn write_to_file(&self, path: &PathBuf) -> std::io::Result<()> {
         let toml_data = format!(
             r#"
             [taker_config]
@@ -205,19 +206,12 @@ impl TakerConfig {
             self.connection_type,
             self.rpc_port
         );
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent)?;
-        }
+        std::fs::create_dir_all(path.parent().expect("Path should NOT be root!"))?;
         let mut file = std::fs::File::create(path)?;
         file.write_all(toml_data.as_bytes())?;
         file.flush()?;
         Ok(())
     }
-}
-
-fn write_default_taker_config(config_path: &PathBuf) {
-    let config = TakerConfig::default();
-    config.write_to_file(config_path).unwrap();
 }
 
 #[cfg(test)]

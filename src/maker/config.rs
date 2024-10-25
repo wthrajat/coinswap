@@ -91,7 +91,7 @@ impl MakerConfig {
         let config_path = config_path.unwrap_or(&default_config_path);
 
         if !config_path.exists() {
-            write_default_maker_config(config_path)?;
+            write_default_maker_config(config_path);
             log::warn!(
                 "Maker config file not found, creating default config file at path: {}",
                 config_path.display()
@@ -238,9 +238,7 @@ impl MakerConfig {
             self.connection_type,
         );
 
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent)?;
-        }
+        std::fs::create_dir_all(path.parent().expect("Path should NOT be root!"))?;
         let mut file = std::fs::File::create(path)?;
         file.write_all(toml_data.as_bytes())?;
         file.flush()?;
