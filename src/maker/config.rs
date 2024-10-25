@@ -91,7 +91,7 @@ impl MakerConfig {
         let config_path = config_path.unwrap_or(&default_config_path);
 
         if !config_path.exists() {
-            write_default_maker_config(config_path);
+            write_default_maker_config(config_path)?;
             log::warn!(
                 "Maker config file not found, creating default config file at path: {}",
                 config_path.display()
