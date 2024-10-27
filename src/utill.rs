@@ -453,15 +453,6 @@ pub fn read_connection_network_string(network: &str) -> Result<ConnectionType, N
     }
 }
 
-/// Function to write data to default toml files
-pub fn write_toml_to_file(path: &PathBuf, toml_data: String) -> std::io::Result<()> {
-    std::fs::create_dir_all(path.parent().expect("Path should NOT be root!"))?;
-    let mut file = File::create(path)?;
-    file.write_all(toml_data.as_bytes())?;
-    file.flush()?;
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use std::net::TcpListener;
