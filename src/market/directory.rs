@@ -7,7 +7,7 @@ use crate::{
     market::rpc::start_rpc_server_thread,
     utill::{
         get_dns_dir, get_tor_addrs, monitor_log_for_completion, parse_field, parse_toml,
-        write_default_config, ConnectionType,
+        ConnectionType,
     },
 };
 
@@ -152,11 +152,6 @@ impl DirectoryServer {
             addresses,
         })
     }
-
-    pub fn shutdown(&self) -> Result<(), DirectoryServerError> {
-        self.shutdown.store(true, Relaxed);
-        Ok(())
-    }
 }
 
 fn write_default_directory_config(config_path: &PathBuf) -> Result<(), DirectoryServerError> {
@@ -166,11 +161,14 @@ fn write_default_directory_config(config_path: &PathBuf) -> Result<(), Directory
             port = 8080\n\
             socks_port = 19060\n\
             connection_type = tor\n\
-            rpc_port= 4321\n\
+            rpc_port = 4321\n\
             ",
     );
-
-    Ok(write_default_config(config_path, config_string)?)
+    std::fs::create_dir_all(config_path.parent().expect("Path should NOT be root!"))?;
+    let mut file = File::create(config_path)?;
+    file.write_all(config_string.as_bytes())?;
+    file.flush()?;
+    Ok(())
 }
 
 pub fn start_address_writer_thread(
@@ -179,7 +177,7 @@ pub fn start_address_writer_thread(
     let address_file = directory.data_dir.join("addresses.dat");
 
     let interval = if cfg!(feature = "integration-test") {
-        60 // 1 minute for tests
+        3 // 3 seconds for tests
     } else {
         600 // 10 minutes for production
     };

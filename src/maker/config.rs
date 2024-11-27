@@ -3,8 +3,9 @@
 use std::{io, path::PathBuf};
 
 use bitcoin::Amount;
+use std::io::Write;
 
-use crate::utill::{get_maker_dir, parse_field, parse_toml, write_default_config, ConnectionType};
+use crate::utill::{get_maker_dir, parse_field, parse_toml, ConnectionType};
 
 /// Maker Configuration, controlling various maker behavior.
 #[derive(Debug, Clone, PartialEq)]
@@ -13,32 +14,17 @@ pub struct MakerConfig {
     pub port: u16,
     /// RPC listening port
     pub rpc_port: u16,
-    /// Time interval between connection checks
-    pub heart_beat_interval_secs: u64,
-    /// Time interval to ping the RPC backend
-    pub rpc_ping_interval_secs: u64,
-    /// Time interval ping directory server
-    pub directory_servers_refresh_interval_secs: u64,
-    /// Time interval to close a connection if no response is received
-    pub idle_connection_timeout: u64,
     /// Absolute coinswap fee
     pub absolute_fee_sats: Amount,
-    /// Fee rate per swap amount in ppb.
-    pub amount_relative_fee_ppb: Amount,
-    /// Fee rate for timelocked contract in ppb
+    /// Fee rate for timelocked contract in parts per billion (PPB).
+    /// Similar to `DEFAULT_AMOUNT_RELATIVE_FEE_PPB`, calculated as (amount * fee_ppb) / 1_000_000_000.
     pub time_relative_fee_ppb: Amount,
-    /// No of confirmation required for funding transaction
-    pub required_confirms: u64,
-    // Minimum timelock difference between contract transaction of two hops
-    pub min_contract_reaction_time: u16,
-    /// Minimum coinswap amount size in sats
+    /// Minimum timelock difference between contract transaction of two hops
     pub min_size: u64,
     /// Socks port
     pub socks_port: u16,
-    /// Directory server onion address
-    pub directory_server_onion_address: String,
-    /// Directory server clearnet address
-    pub directory_server_clearnet_address: String,
+    /// Directory server address (can be clearnet or onion)
+    pub directory_server_address: String,
     /// Fidelity Bond Value
     pub fidelity_value: u64,
     /// Fidelity Bond timelock in Block heights.
@@ -52,20 +38,12 @@ impl Default for MakerConfig {
         Self {
             port: 6102,
             rpc_port: 6103,
-            heart_beat_interval_secs: 3,
-            rpc_ping_interval_secs: 60,
-            directory_servers_refresh_interval_secs: 60 * 60 * 12, //12 Hours
-            idle_connection_timeout: 300,
             absolute_fee_sats: Amount::from_sat(1000),
-            amount_relative_fee_ppb: Amount::from_sat(10_000_000),
             time_relative_fee_ppb: Amount::from_sat(100_000),
-            required_confirms: 1,
-            min_contract_reaction_time: 48,
             min_size: 10_000,
             socks_port: 19050,
-            directory_server_onion_address: "directoryhiddenserviceaddress.onion:8080".to_string(),
-            directory_server_clearnet_address: "127.0.0.1:8080".to_string(),
-            fidelity_value: 5_000_000, // 5 million  sats
+            directory_server_address: "directoryhiddenserviceaddress.onion:8080".to_string(),
+            fidelity_value: 5_000_000, // 5 million sats
             fidelity_timelock: 26_000, // Approx 6 months of blocks
             connection_type: ConnectionType::TOR,
         }
@@ -90,7 +68,7 @@ impl MakerConfig {
         let config_path = config_path.unwrap_or(&default_config_path);
 
         if !config_path.exists() {
-            write_default_maker_config(config_path)?;
+            write_default_maker_config(config_path);
             log::warn!(
                 "Maker config file not found, creating default config file at path: {}",
                 config_path.display()
@@ -113,51 +91,16 @@ impl MakerConfig {
                 default_config.rpc_port,
             )
             .unwrap_or(default_config.rpc_port),
-            heart_beat_interval_secs: parse_field(
-                maker_config_section.get("heart_beat_interval_secs"),
-                default_config.heart_beat_interval_secs,
-            )
-            .unwrap_or(default_config.heart_beat_interval_secs),
-            rpc_ping_interval_secs: parse_field(
-                maker_config_section.get("rpc_ping_interval_secs"),
-                default_config.rpc_ping_interval_secs,
-            )
-            .unwrap_or(default_config.rpc_ping_interval_secs),
-            directory_servers_refresh_interval_secs: parse_field(
-                maker_config_section.get("directory_servers_refresh_interval_secs"),
-                default_config.directory_servers_refresh_interval_secs,
-            )
-            .unwrap_or(default_config.directory_servers_refresh_interval_secs),
-            idle_connection_timeout: parse_field(
-                maker_config_section.get("idle_connection_timeout"),
-                default_config.idle_connection_timeout,
-            )
-            .unwrap_or(default_config.idle_connection_timeout),
             absolute_fee_sats: parse_field(
                 maker_config_section.get("absolute_fee_sats"),
                 default_config.absolute_fee_sats,
             )
             .unwrap_or(default_config.absolute_fee_sats),
-            amount_relative_fee_ppb: parse_field(
-                maker_config_section.get("amount_relative_fee_ppb"),
-                default_config.amount_relative_fee_ppb,
-            )
-            .unwrap_or(default_config.amount_relative_fee_ppb),
             time_relative_fee_ppb: parse_field(
                 maker_config_section.get("time_relative_fee_ppb"),
                 default_config.time_relative_fee_ppb,
             )
             .unwrap_or(default_config.time_relative_fee_ppb),
-            required_confirms: parse_field(
-                maker_config_section.get("required_confirms"),
-                default_config.required_confirms,
-            )
-            .unwrap_or(default_config.required_confirms),
-            min_contract_reaction_time: parse_field(
-                maker_config_section.get("min_contract_reaction_time"),
-                default_config.min_contract_reaction_time,
-            )
-            .unwrap_or(default_config.min_contract_reaction_time),
             min_size: parse_field(
                 maker_config_section.get("min_size"),
                 default_config.min_size,
@@ -168,14 +111,10 @@ impl MakerConfig {
                 default_config.socks_port,
             )
             .unwrap_or(default_config.socks_port),
-            directory_server_onion_address: maker_config_section
+            directory_server_address: maker_config_section
                 .get("directory_server_onion_address")
                 .map(|s| s.to_string())
-                .unwrap_or(default_config.directory_server_onion_address),
-            directory_server_clearnet_address: maker_config_section
-                .get("directory_server_clearnet_address")
-                .map(|s| s.to_string())
-                .unwrap_or(default_config.directory_server_clearnet_address),
+                .unwrap_or(default_config.directory_server_address),
             fidelity_value: parse_field(
                 maker_config_section.get("fidelity_value"),
                 default_config.fidelity_value,
@@ -193,35 +132,45 @@ impl MakerConfig {
             .unwrap_or(default_config.connection_type),
         })
     }
+
+    // Method to serialize the MakerConfig into a TOML string and write it to a file
+    pub fn write_to_file(&self, path: &PathBuf) -> std::io::Result<()> {
+        let toml_data = format!(
+            r#"
+            port = {}
+            rpc_port = {}
+            absolute_fee_sats = {}
+            time_relative_fee_ppb = {}
+            min_size = {}
+            socks_port = {}
+            directory_server_address = "{}"
+            fidelity_value = {}
+            fidelity_timelock = {}
+            connection_type = "{:?}"
+            "#,
+            self.port,
+            self.rpc_port,
+            self.absolute_fee_sats,
+            self.time_relative_fee_ppb,
+            self.min_size,
+            self.socks_port,
+            self.directory_server_address,
+            self.fidelity_value,
+            self.fidelity_timelock,
+            self.connection_type,
+        );
+
+        std::fs::create_dir_all(path.parent().expect("Path should NOT be root!"))?;
+        let mut file = std::fs::File::create(path)?;
+        file.write_all(toml_data.as_bytes())?;
+        file.flush()?;
+        Ok(())
+    }
 }
 
-fn write_default_maker_config(config_path: &PathBuf) -> io::Result<()> {
-    let config_string = String::from(
-        "\
-            [maker_config]\n\
-            port = 6102\n\
-            rpc_port = 6103\n\
-            heart_beat_interval_secs = 3\n\
-            rpc_ping_interval_secs = 60\n\
-            directory_servers_refresh_interval_secs = 43200\n\
-            idle_connection_timeout = 300\n\
-            onion_addrs = myhiddenserviceaddress.onion\n\
-            absolute_fee_sats = 1000\n\
-            amount_relative_fee_ppb = 10000000\n\
-            time_relative_fee_ppb = 100000\n\
-            required_confirms = 1\n\
-            min_contract_reaction_time = 48\n\
-            min_size = 10000\n\
-            socks_port = 19050\n\
-            directory_server_onion_address = directoryhiddenserviceaddress.onion:8080\n\
-            directory_server_clearnet_address = 127.0.0.1:8080\n\
-            connection_type = tor
-            ",
-    );
-
-    write_default_config(config_path, config_string)?;
-
-    Ok(())
+fn write_default_maker_config(config_path: &PathBuf) {
+    let config = MakerConfig::default();
+    config.write_to_file(config_path).unwrap();
 }
 
 #[cfg(test)]
@@ -249,11 +198,6 @@ mod tests {
             [maker_config]
             port = 6102
             rpc_port = 6103
-            heart_beat_interval_secs = 3
-            rpc_ping_interval_secs = 60
-            watchtower_ping_interval_secs = 300
-            directory_servers_refresh_interval_secs = 43200
-            idle_connection_timeout = 300
             absolute_fee_sats = 1000
             amount_relative_fee_ppb = 10000000
             time_relative_fee_ppb = 100000

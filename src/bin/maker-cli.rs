@@ -37,6 +37,16 @@ enum Commands {
     FidelityBalance,
     /// Gets a new address
     NewAddress,
+    // Send to an external wallet address.
+    SendToAddress {
+        address: String,
+        amount: u64,
+        fee: u64,
+    },
+    /// Returns the tor address
+    GetTorAddress,
+    /// Returns the data dir
+    GetDataDir,
 }
 
 fn main() -> Result<(), MakerError> {
@@ -74,13 +84,30 @@ fn main() -> Result<(), MakerError> {
         Commands::NewAddress => {
             send_rpc_req(&RpcMsgReq::NewAddress)?;
         }
+        Commands::SendToAddress {
+            address,
+            amount,
+            fee,
+        } => {
+            send_rpc_req(&RpcMsgReq::SendToAddress {
+                address,
+                amount,
+                fee,
+            })?;
+        }
+        Commands::GetTorAddress => {
+            send_rpc_req(&RpcMsgReq::GetTorAddress)?;
+        }
+        Commands::GetDataDir => {
+            send_rpc_req(&RpcMsgReq::GetDataDir)?;
+        }
     }
 
     Ok(())
 }
 
 fn send_rpc_req(req: &RpcMsgReq) -> Result<(), MakerError> {
-    let mut stream = TcpStream::connect("127.0.0.1:8080")?;
+    let mut stream = TcpStream::connect("127.0.0.1:6103")?;
     stream.set_read_timeout(Some(Duration::from_secs(20)))?;
     stream.set_write_timeout(Some(Duration::from_secs(20)))?;
 

@@ -185,7 +185,18 @@ pub fn read_message(reader: &mut TcpStream) -> Result<Vec<u8>, NetError> {
 
     // the actual data
     let mut buffer = vec![0; length as usize];
-    reader.read_exact(&mut buffer)?;
+    let mut total_read = 0;
+
+    while total_read < length as usize {
+        match reader.read(&mut buffer[total_read..]) {
+            Ok(0) => return Err(NetError::ReachedEOF), // Connection closed
+            Ok(n) => total_read += n,
+            Err(e) if matches!(e.kind(), ErrorKind::WouldBlock | ErrorKind::Interrupted) => {
+                continue
+            }
+            Err(e) => return Err(e.into()),
+        }
+    }
     Ok(buffer)
 }
 
@@ -333,17 +344,6 @@ pub fn parse_field<T: std::str::FromStr>(value: Option<&String>, default: T) -> 
             .map_err(|_e| io::Error::new(ErrorKind::InvalidData, "parsing failed")),
         None => Ok(default),
     }
-}
-
-/// Function to write data to default toml files
-pub fn write_default_config(path: &PathBuf, toml_data: String) -> std::io::Result<()> {
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)?;
-    }
-    let mut file = File::create(path)?;
-    file.write_all(toml_data.as_bytes())?;
-    file.flush()?;
-    Ok(())
 }
 
 /// Function to check if tor log contains a pattern

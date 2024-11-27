@@ -3,52 +3,29 @@
 //!  Represents the configuration options for the Taker module, controlling behaviors
 //! such as refund locktime, connection attempts, sleep delays, and timeouts.
 
-use std::{io, path::PathBuf};
-
-use crate::utill::{get_taker_dir, parse_field, parse_toml, write_default_config, ConnectionType};
+use crate::utill::{get_taker_dir, parse_field, parse_toml, ConnectionType};
+use std::{io, io::Write, path::PathBuf};
 /// Taker configuration with refund, connection, and sleep settings.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TakerConfig {
-    // TODO: Move all of these to global constants.
-    pub refund_locktime: u16,
-    pub refund_locktime_step: u16,
-
-    pub first_connect_attempts: u32,
-    pub first_connect_sleep_delay_sec: u64,
-    pub first_connect_attempt_timeout_sec: u64,
-
-    pub reconnect_attempts: u32,
-    pub reconnect_short_sleep_delay: u64,
-    pub reconnect_long_sleep_delay: u64,
-    pub short_long_sleep_delay_transition: u32,
-    pub reconnect_attempt_timeout_sec: u64,
-
-    // TODO: Only these should be user facing configs.
+    /// Network listening port
     pub port: u16,
+    /// Socks port
     pub socks_port: u16,
-    pub directory_server_onion_address: String,
-    pub directory_server_clearnet_address: String,
+    /// Directory server address (can be clearnet or onion)
+    pub directory_server_address: String,
+    /// Connection type
     pub connection_type: ConnectionType,
+    /// RPC port
     pub rpc_port: u16,
 }
 
 impl Default for TakerConfig {
     fn default() -> Self {
         Self {
-            refund_locktime: 48,
-            refund_locktime_step: 48,
-            first_connect_attempts: 5,
-            first_connect_sleep_delay_sec: 1,
-            first_connect_attempt_timeout_sec: 60,
-            reconnect_attempts: 3200,
-            reconnect_short_sleep_delay: 10,
-            reconnect_long_sleep_delay: 60,
-            short_long_sleep_delay_transition: 60,
-            reconnect_attempt_timeout_sec: 300,
             port: 8000,
             socks_port: 19050,
-            directory_server_onion_address: "directoryhiddenserviceaddress.onion:8080".to_string(),
-            directory_server_clearnet_address: "127.0.0.1:8080".to_string(),
+            directory_server_address: "directoryhiddenserviceaddress.onion:8080".to_string(),
             connection_type: ConnectionType::TOR,
             rpc_port: 8081,
         }
@@ -73,7 +50,8 @@ impl TakerConfig {
         let config_path = config_path.unwrap_or(&default_config_path);
 
         if !config_path.exists() {
-            write_default_taker_config(config_path);
+            let config = TakerConfig::default();
+            config.write_to_file(config_path).unwrap();
             log::warn!(
                 "Taker config file not found, creating default config file at path: {}",
                 config_path.display()
@@ -88,57 +66,7 @@ impl TakerConfig {
 
         let taker_config_section = section.get("taker_config").cloned().unwrap_or_default();
 
-        Ok(Self {
-            refund_locktime: parse_field(
-                taker_config_section.get("refund_locktime"),
-                default_config.refund_locktime,
-            )
-            .unwrap_or(default_config.refund_locktime),
-            refund_locktime_step: parse_field(
-                taker_config_section.get("refund_locktime_step"),
-                default_config.refund_locktime_step,
-            )
-            .unwrap_or(default_config.refund_locktime_step),
-            first_connect_attempts: parse_field(
-                taker_config_section.get("first_connect_attempts"),
-                default_config.first_connect_attempts,
-            )
-            .unwrap_or(default_config.first_connect_attempts),
-            first_connect_sleep_delay_sec: parse_field(
-                taker_config_section.get("first_connect_sleep_delay_sec"),
-                default_config.first_connect_sleep_delay_sec,
-            )
-            .unwrap_or(default_config.first_connect_sleep_delay_sec),
-            first_connect_attempt_timeout_sec: parse_field(
-                taker_config_section.get("first_connect_attempt_timeout_sec"),
-                default_config.first_connect_attempt_timeout_sec,
-            )
-            .unwrap_or(default_config.first_connect_attempt_timeout_sec),
-            reconnect_attempts: parse_field(
-                taker_config_section.get("reconnect_attempts"),
-                default_config.reconnect_attempts,
-            )
-            .unwrap_or(default_config.reconnect_attempts),
-            reconnect_short_sleep_delay: parse_field(
-                taker_config_section.get("reconnect_short_sleep_delay"),
-                default_config.reconnect_short_sleep_delay,
-            )
-            .unwrap_or(default_config.reconnect_short_sleep_delay),
-            reconnect_long_sleep_delay: parse_field(
-                taker_config_section.get("reconnect_long_sleep_delay"),
-                default_config.reconnect_long_sleep_delay,
-            )
-            .unwrap_or(default_config.reconnect_long_sleep_delay),
-            short_long_sleep_delay_transition: parse_field(
-                taker_config_section.get("short_long_sleep_delay_transition"),
-                default_config.short_long_sleep_delay_transition,
-            )
-            .unwrap_or(default_config.short_long_sleep_delay_transition),
-            reconnect_attempt_timeout_sec: parse_field(
-                taker_config_section.get("reconnect_attempt_timeout_sec"),
-                default_config.reconnect_attempt_timeout_sec,
-            )
-            .unwrap_or(default_config.reconnect_attempt_timeout_sec),
+        Ok(TakerConfig {
             port: parse_field(taker_config_section.get("port"), default_config.port)
                 .unwrap_or(default_config.port),
             socks_port: parse_field(
@@ -146,14 +74,10 @@ impl TakerConfig {
                 default_config.socks_port,
             )
             .unwrap_or(default_config.socks_port),
-            directory_server_onion_address: taker_config_section
+            directory_server_address: taker_config_section
                 .get("directory_server_onion_address")
                 .map(|s| s.to_string())
-                .unwrap_or(default_config.directory_server_onion_address),
-            directory_server_clearnet_address: taker_config_section
-                .get("directory_server_clearnet_address")
-                .map(|s| s.to_string())
-                .unwrap_or(default_config.directory_server_clearnet_address),
+                .unwrap_or(default_config.directory_server_address),
             connection_type: parse_field(
                 taker_config_section.get("connection_type"),
                 default_config.connection_type,
@@ -166,35 +90,36 @@ impl TakerConfig {
             .unwrap_or(default_config.rpc_port),
         })
     }
-}
 
-fn write_default_taker_config(config_path: &PathBuf) {
-    let config_string = String::from(
-        "\
-                        [taker_config]\n\
-                        refund_locktime = 48\n\
-                        refund_locktime_step = 48\n\
-                        first_connect_attempts = 5\n\
-                        first_connect_sleep_delay_sec = 1\n\
-                        first_connect_attempt_timeout_sec = 60\n\
-                        reconnect_attempts = 3200\n\
-                        reconnect_short_sleep_delay = 10\n\
-                        reconnect_long_sleep_delay = 60\n\
-                        short_long_sleep_delay_transition = 60\n\
-                        reconnect_attempt_timeout_sec = 300\n\
-                        port = 8000\n\
-                        socks_port = 19050\n\
-                        directory_server_onion_address = directoryhiddenserviceaddress.onion:8080\n\
-                        directory_server_clearnet_address = 127.0.0.1:8080\n\
-                        connection_type = tor\n\
-                        rpc_port = 8081\n
-                        ",
-    );
-    write_default_config(config_path, config_string).unwrap();
+    // Method to manually serialize the Taker Config into a TOML string
+    pub fn write_to_file(&self, path: &PathBuf) -> std::io::Result<()> {
+        let toml_data = format!(
+            r#"
+            [taker_config]
+            port = {}
+            socks_port = {}
+            directory_server_address = {}
+            connection_type = "{:?}"
+            rpc_port = {}
+            "#,
+            self.port,
+            self.socks_port,
+            self.directory_server_address,
+            self.connection_type,
+            self.rpc_port
+        );
+        std::fs::create_dir_all(path.parent().expect("Path should NOT be root!"))?;
+        let mut file = std::fs::File::create(path)?;
+        file.write_all(toml_data.as_bytes())?;
+        file.flush()?;
+        Ok(())
+    }
 }
 
 #[cfg(test)]
 mod tests {
+
+    use crate::taker::api::REFUND_LOCKTIME;
 
     use super::*;
     use std::{
@@ -217,18 +142,11 @@ mod tests {
     fn test_valid_config() {
         let contents = r#"
         [taker_config]
-        refund_locktime = 48
-        refund_locktime_step = 48
-        first_connect_attempts = 5
-        first_connect_sleep_delay_sec = 1
-        first_connect_attempt_timeout_sec = 60
-        reconnect_attempts = 3200
-        reconnect_short_sleep_delay = 10
-        reconnect_long_sleep_delay = 60
-        short_long_sleep_delay_transition = 60
-        reconnect_attempt_timeout_sec = 300
         port = 8000
         socks_port = 19050
+        directory_server_address = "directoryhiddenserviceaddress.onion:8080"
+        connection_type = "TOR"
+        rpc_port = 8081
         "#;
         let config_path = create_temp_config(contents, "valid_taker_config.toml");
         let config = TakerConfig::new(Some(&config_path)).unwrap();
@@ -248,7 +166,7 @@ mod tests {
         let config = TakerConfig::new(Some(&config_path)).unwrap();
         remove_temp_config(&config_path);
 
-        assert_eq!(config.refund_locktime, 48);
+        assert_eq!(REFUND_LOCKTIME, 48);
         assert_eq!(config, TakerConfig::default());
     }
 
@@ -269,19 +187,19 @@ mod tests {
     fn test_different_data() {
         let contents = r#"
             [taker_config]
-            refund_locktime = 49
+            socks_port = 19051
         "#;
         let config_path = create_temp_config(contents, "different_data_taker_config.toml");
         let config = TakerConfig::new(Some(&config_path)).unwrap();
         remove_temp_config(&config_path);
-        assert_eq!(config.refund_locktime, 49);
+        assert_eq!(REFUND_LOCKTIME, 48);
         assert_eq!(
             TakerConfig {
-                refund_locktime: 48,
-                ..config
+                socks_port: 19051,        // Configurable via TOML.
+                ..TakerConfig::default()  // Use default for other values.
             },
-            TakerConfig::default()
-        )
+            config
+        );
     }
 
     #[test]

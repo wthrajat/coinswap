@@ -50,6 +50,10 @@ use crate::{
 
 use super::{config::MakerConfig, error::MakerError};
 
+use crate::maker::server::{
+    HEART_BEAT_INTERVAL_SECS, MIN_CONTRACT_REACTION_TIME, REQUIRED_CONFIRMS,
+};
+
 /// Used to configure the maker for testing purposes.
 #[derive(Debug, Clone, Copy)]
 pub enum MakerBehavior {
@@ -103,7 +107,7 @@ pub struct Maker {
     /// Highest Value Fidelity Proof
     pub highest_fidelity_proof: RwLock<Option<FidelityProof>>,
     /// Is setup complete
-    pub is_setup_complete: RwLock<bool>,
+    pub is_setup_complete: AtomicBool,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -204,7 +208,7 @@ impl Maker {
             config.connection_type = connection_type;
         }
 
-        // TODO: Write the modified config back to the file.
+        config.write_to_file(&data_dir.join("config.toml"))?;
 
         log::info!("Initializing wallet sync");
         wallet.sync()?;
@@ -217,21 +221,8 @@ impl Maker {
             shutdown: AtomicBool::new(false),
             connection_state: Mutex::new(HashMap::new()),
             highest_fidelity_proof: RwLock::new(None),
-            is_setup_complete: RwLock::new(false),
+            is_setup_complete: AtomicBool::new(false),
         })
-    }
-
-    /// Triggers a shutdown event for the Maker.
-    pub fn shutdown(&self) -> Result<(), MakerError> {
-        self.shutdown.store(true, Relaxed);
-        Ok(())
-    }
-
-    /// Triggers a setup complete event for the Maker.
-    pub fn setup_complete(&self) -> Result<(), MakerError> {
-        let mut flag = self.is_setup_complete.write()?;
-        *flag = true;
-        Ok(())
     }
 
     /// Returns a reference to the Maker's wallet.
@@ -250,7 +241,7 @@ impl Maker {
             // check that the new locktime is sufficently short enough compared to the
             // locktime in the provided funding tx
             let locktime = read_contract_locktime(&funding_info.contract_redeemscript)?;
-            if locktime - message.next_locktime < self.config.min_contract_reaction_time {
+            if locktime - message.next_locktime < MIN_CONTRACT_REACTION_TIME {
                 return Err(MakerError::General(
                     "Next hop locktime too close to current hop locktime",
                 ));
@@ -270,7 +261,7 @@ impl Maker {
                 )
                 .map_err(WalletError::Rpc)?
             {
-                if txout.confirmations < (self.config.required_confirms as u32) {
+                if txout.confirmations < (REQUIRED_CONFIRMS as u32) {
                     return Err(MakerError::General(
                         "funding tx not confirmed to required depth",
                     ));
@@ -363,7 +354,7 @@ impl Maker {
                 &txinfo.timelock_pubkey,
                 &message.hashvalue,
                 &message.locktime,
-                &self.config.min_contract_reaction_time,
+                &MIN_CONTRACT_REACTION_TIME,
             )?;
 
             self.wallet.write()?.cache_prevout_to_contract(
@@ -491,7 +482,7 @@ pub fn check_for_broadcasted_contracts(maker: Arc<Maker>) -> Result<(), MakerErr
             }
         } // All locks are cleared here.
 
-        std::thread::sleep(Duration::from_secs(maker.config.heart_beat_interval_secs));
+        std::thread::sleep(Duration::from_secs(HEART_BEAT_INTERVAL_SECS));
     }
 
     Ok(())
@@ -571,7 +562,7 @@ pub fn check_for_idle_states(maker: Arc<Maker>) -> Result<(), MakerError> {
             }
         } // All locks are cleared here
 
-        std::thread::sleep(Duration::from_secs(maker.config.heart_beat_interval_secs));
+        std::thread::sleep(Duration::from_secs(HEART_BEAT_INTERVAL_SECS));
     }
 
     Ok(())
@@ -727,14 +718,14 @@ pub fn recover_from_swap(
             log::info!("Completed Wallet Sync.");
             // For test, shutdown the maker at this stage.
             #[cfg(feature = "integration-test")]
-            maker.shutdown()?;
+            maker.shutdown.store(true, Relaxed);
             return Ok(());
         }
         // Sleep before next blockchain scan
         let block_lookup_interval = if cfg!(feature = "integration-test") {
             Duration::from_secs(10)
         } else {
-            Duration::from_secs(10 * 60)
+            Duration::from_secs(300)
         };
         std::thread::sleep(block_lookup_interval);
     }
